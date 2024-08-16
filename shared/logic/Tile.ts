@@ -1,5 +1,6 @@
 import type { Building } from "../definitions/BuildingDefinitions";
 import type { GreatPerson } from "../definitions/GreatPersonDefinitions";
+import type { Ideology } from "../definitions/IdeologyDefinitions";
 import type { Religion } from "../definitions/ReligionDefinitions";
 import type { Deposit, Resource } from "../definitions/ResourceDefinitions";
 import type { Tradition } from "../definitions/TraditionDefinitions";
@@ -8,6 +9,7 @@ import type { PartialSet, PartialTabulate } from "../utilities/TypeDefinitions";
 import { L, t } from "../utilities/i18n";
 import { Config } from "./Config";
 import type { GameState } from "./GameState";
+import { clearTransportSourceCache } from "./Update";
 
 export interface ITileData {
    tile: Tile;
@@ -65,8 +67,6 @@ export interface IBuildingData {
 
    suspendedInput: Map<Resource, SuspendedInput>;
 
-   // disabledInput: Set<Resource>;
-
    inputMode: BuildingInputMode;
    maxInputDistance: number;
 }
@@ -86,6 +86,11 @@ export interface IResourceImport {
    perCycle: number;
    cap: number;
    inputMode?: BuildingInputMode;
+}
+
+export interface ICloneBuildingData extends IBuildingData {
+   inputResource: Resource;
+   transportedAmount: number;
 }
 
 export enum ResourceImportOptions {
@@ -126,6 +131,10 @@ export interface ITraditionBuildingData extends IBuildingData {
 
 export interface IReligionBuildingData extends IBuildingData {
    religion: Religion | null;
+}
+
+export interface IIdeologyBuildingData extends IBuildingData {
+   ideology: Ideology | null;
 }
 
 export interface IGreatPeopleBuildingData extends IBuildingData {
@@ -226,10 +235,28 @@ export function makeBuilding(data: Pick<IBuildingData, "type"> & Partial<IBuildi
          }
          break;
       }
+      case "BigBen": {
+         const religion = building as IIdeologyBuildingData;
+         if (!religion.ideology) {
+            religion.ideology = null;
+         }
+         break;
+      }
       case "Broadway": {
          const tradition = building as IGreatPeopleBuildingData;
          if (!tradition.greatPeople) {
             tradition.greatPeople = new Set();
+         }
+         break;
+      }
+      case "CloneFactory":
+      case "CloneLab": {
+         const s = building as ICloneBuildingData;
+         if (!s.inputResource) {
+            s.inputResource = "Computer";
+         }
+         if (!s.transportedAmount) {
+            s.transportedAmount = 0;
          }
          break;
       }
@@ -243,6 +270,7 @@ export function makeBuilding(data: Pick<IBuildingData, "type"> & Partial<IBuildi
    building.stockpileMax = clamp(building.stockpileMax, STOCKPILE_MAX_MIN, STOCKPILE_MAX_MAX);
    building.productionPriority = clamp(building.productionPriority, PRIORITY_MIN, PRIORITY_MAX);
    building.constructionPriority = clamp(building.constructionPriority, PRIORITY_MIN, PRIORITY_MAX);
+   clearTransportSourceCache();
    return building;
 }
 

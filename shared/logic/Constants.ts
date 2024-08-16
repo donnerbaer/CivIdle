@@ -50,6 +50,7 @@ export const MANAGED_IMPORT_RANGE = 2;
 export const DISABLE_PLAYER_TRADES = false;
 export const MAX_TELEPORT = 10;
 export const TELEPORT_SECONDS = 60;
+export const MAX_PETRA_SPEED_UP = 16;
 
 export const GOLDEN_RATIO = (1 + Math.sqrt(5)) / 2;
 
@@ -274,9 +275,14 @@ export function calculateTierAndPrice(log?: (val: string) => void) {
                const price = Math.round(
                   (multiplier * inputResourcesValue - notPricedResourceValue) / allOutputAmount,
                );
+               if (!Number.isFinite(price)) {
+                  return;
+               }
                if (!Config.ResourcePrice[res]) {
                   Config.ResourcePrice[res] = price;
-               } else if (price > Config.ResourcePrice[res]!) {
+                  return;
+               }
+               if (price > Config.ResourcePrice[res]!) {
                   log?.(
                      `Price of ${res} changed from ${Config.ResourcePrice[res]!} to ${price} by ${building}`,
                   );
@@ -292,6 +298,10 @@ export function calculateTierAndPrice(log?: (val: string) => void) {
          Config.BuildingTier[building] = 0;
       }
    });
+
+   Config.BuildingTechAge.LivestockFarm = "BronzeAge";
+   Config.BuildingTier.CloneFactory = 8;
+   Config.BuildingTier.CloneLab = 8;
 
    let resourceHash = 0;
    forEach(Config.Resource, (r) => {
@@ -485,6 +495,11 @@ export function calculateTierAndPrice(log?: (val: string) => void) {
 }
 
 function getBuildingUnlockTechSlow(building: Building): Tech | null {
+   // TODO: This is temporary
+   if (building === "LivestockFarm") {
+      return "Herding";
+   }
+
    let key: Tech;
    for (key in Config.Tech) {
       if (Config.Tech[key].unlockBuilding?.includes(building)) {

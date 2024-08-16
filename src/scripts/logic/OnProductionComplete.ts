@@ -1,4 +1,5 @@
 import type { Building } from "../../../shared/definitions/BuildingDefinitions";
+import { GreatPersonTickFlag } from "../../../shared/definitions/GreatPersonDefinitions";
 import {
    forEachMultiplier,
    generateScienceFromFaith,
@@ -14,7 +15,9 @@ import { Config } from "../../../shared/logic/Config";
 import {
    EXPLORER_SECONDS,
    MAX_EXPLORER,
+   MAX_PETRA_SPEED_UP,
    MAX_TELEPORT,
+   SCIENCE_VALUE,
    TELEPORT_SECONDS,
 } from "../../../shared/logic/Constants";
 import { getGameOptions, getGameState } from "../../../shared/logic/GameStateLogic";
@@ -27,10 +30,15 @@ import {
 } from "../../../shared/logic/IntraTickCache";
 import { getVotedBoostId } from "../../../shared/logic/PlayerTradeLogic";
 import { getGreatPersonTotalEffect } from "../../../shared/logic/RebirthLogic";
-import { getBuildingUnlockAge, getCurrentAge } from "../../../shared/logic/TechLogic";
+import {
+   getBuildingUnlockAge,
+   getBuildingsUnlockedBefore,
+   getCurrentAge,
+} from "../../../shared/logic/TechLogic";
 import { Tick } from "../../../shared/logic/TickLogic";
 import type {
    IGreatPeopleBuildingData,
+   IIdeologyBuildingData,
    IPetraBuildingData,
    IReligionBuildingData,
    ITileData,
@@ -59,6 +67,8 @@ import { Singleton } from "../utilities/Singleton";
 
 let votedBoost: IGetVotedBoostResponse | null = null;
 let lastVotedBoostUpdatedAt = 0;
+let lastFujiGeneratedAt = Date.now();
+let fujiTick = 0;
 
 export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boolean }): void {
    const gs = getGameState();
@@ -306,13 +316,15 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
             break;
          }
          const petra = building as IPetraBuildingData;
+         petra.speedUp = clamp(petra.speedUp, 1, MAX_PETRA_SPEED_UP);
+
          if (petra.speedUp > 1 && (petra.resources.Warp ?? 0) > 0) {
             --petra.resources.Warp!;
-            Singleton().ticker.speedUp = petra.speedUp;
          } else {
             petra.speedUp = 1;
-            Singleton().ticker.speedUp = 1;
          }
+         Singleton().ticker.speedUp = petra.speedUp;
+
          for (const res of keysOf(petra.resources)) {
             if (res !== "Warp") {
                delete petra.resources[res];
@@ -559,6 +571,7 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
                Config.GreatPerson.Hatshepsut,
                total,
                `${buildingName}: ${Config.GreatPerson.Hatshepsut.name()}`,
+               GreatPersonTickFlag.None,
             );
          }
          break;
@@ -715,6 +728,7 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
                Config.GreatPerson.Confucius,
                total,
                `${buildingName}: ${Config.GreatPerson.Confucius.name()}`,
+               GreatPersonTickFlag.None,
             );
          }
          break;
@@ -787,6 +801,7 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
                Config.GreatPerson.ZhengHe,
                total,
                `${buildingName}: ${Config.GreatPerson.ZhengHe.name()}`,
+               GreatPersonTickFlag.None,
             );
          }
          break;
@@ -884,17 +899,37 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
             value: 1,
             source: buildingName,
          });
-         const cz = building as IReligionBuildingData;
-         if (cz.religion) {
-            const religion = Config.Religion[cz.religion].content;
-            for (let i = 0; i < cz.level; i++) {
-               const trad = religion[i];
-               const def = Config.Upgrade[trad];
-               if (!gs.unlockedUpgrades[trad]) {
-                  gs.unlockedUpgrades[trad] = true;
+         const lt = building as IReligionBuildingData;
+         if (lt.religion) {
+            const religion = Config.Religion[lt.religion].content;
+            for (let i = 0; i < lt.level; i++) {
+               const rel = religion[i];
+               const def = Config.Upgrade[rel];
+               if (!gs.unlockedUpgrades[rel]) {
+                  gs.unlockedUpgrades[rel] = true;
                   def.onUnlocked?.(gs);
                }
                tickUnlockable(def, t(L.SourceReligion, { religion: def.name() }), gs);
+            }
+         }
+         break;
+      }
+      case "BigBen": {
+         Tick.next.globalMultipliers.sciencePerBusyWorker.push({
+            value: 2,
+            source: buildingName,
+         });
+         const bb = building as IIdeologyBuildingData;
+         if (bb.ideology) {
+            const ideology = Config.Ideology[bb.ideology].content;
+            for (let i = 0; i < bb.level; i++) {
+               const ideo = ideology[i];
+               const def = Config.Upgrade[ideo];
+               if (!gs.unlockedUpgrades[ideo]) {
+                  gs.unlockedUpgrades[ideo] = true;
+                  def.onUnlocked?.(gs);
+               }
+               tickUnlockable(def, t(L.SourceIdeology, { ideology: def.name() }), gs);
             }
          }
          break;
@@ -905,7 +940,7 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
             const def = Config.GreatPerson[gp];
             const total = getGreatPersonTotalEffect(gp, gs, options);
             if (total > 0) {
-               def.tick(def, total, `${buildingName}: ${def.name()}`);
+               def.tick(def, total, `${buildingName}: ${def.name()}`, GreatPersonTickFlag.Unstable);
             }
          });
          break;
@@ -951,6 +986,7 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
                Config.GreatPerson.JohnDRockefeller,
                total,
                `${buildingName}: ${Config.GreatPerson.JohnDRockefeller.name()}`,
+               GreatPersonTickFlag.None,
             );
          }
          break;
@@ -968,6 +1004,7 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
                Config.GreatPerson.JPMorgan,
                total,
                `${buildingName}: ${Config.GreatPerson.JPMorgan.name()}`,
+               GreatPersonTickFlag.None,
             );
          }
          break;
@@ -994,6 +1031,7 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
             Config.GreatPerson.HarunAlRashid,
             getGreatPersonTotalEffect("HarunAlRashid", gs, options),
             `${buildingName}: ${Config.GreatPerson.HarunAlRashid.name()}`,
+            GreatPersonTickFlag.None,
          );
          generateScienceFromFaith(xy, "Mosque", gs);
          break;
@@ -1021,10 +1059,15 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
          const happiness = Tick.current.happiness?.value ?? 0;
          const age = getCurrentAge(gs);
          if (happiness > 0) {
-            Tick.next.globalMultipliers.output.push({
-               value: clamp(Math.floor(happiness / 10), 1, Math.floor((Config.TechAge[age].idx + 1) / 2)),
-               source: buildingName,
-               unstable: true,
+            const multiplier = clamp(
+               Math.floor(happiness / 10),
+               1,
+               Math.floor((Config.TechAge[age].idx + 1) / 2),
+            );
+            getBuildingsUnlockedBefore(getCurrentAge(gs)).forEach((b) => {
+               if (!Config.Building[b].output.Worker) {
+                  addMultiplier(b, { output: multiplier, unstable: true }, buildingName);
+               }
             });
          }
          break;
@@ -1054,7 +1097,8 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
       case "ZagrosMountains": {
          for (const point of grid.getRange(tileToPoint(xy), 1)) {
             const tileXy = pointToTile(point);
-            let multiplier = 0;
+            // Include base multiplier (1)
+            let multiplier = 1;
             forEachMultiplier(
                tileXy,
                (m) => {
@@ -1079,6 +1123,7 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
                Config.GreatPerson.NebuchadnezzarII,
                total,
                `${buildingName}: ${Config.GreatPerson.NebuchadnezzarII.name()}`,
+               GreatPersonTickFlag.None,
             );
          }
          break;
@@ -1093,16 +1138,140 @@ export function onProductionComplete({ xy, offline }: { xy: Tile; offline: boole
          const age = getCurrentAge(gs);
          if (Number.isFinite(multiplier) && multiplier > 0) {
             const cappedMultiplier = clamp(multiplier, 1, Math.floor((Config.TechAge[age].idx + 1) / 2));
-            gs.tiles.forEach((tile, xy) => {
-               if (tile.building && !Config.Building[tile.building.type].output.Worker) {
-                  mapSafePush(Tick.next.tileMultipliers, xy, {
-                     output: cappedMultiplier,
-                     source: buildingName,
-                     unstable: true,
-                  });
+            getBuildingsUnlockedBefore(getCurrentAge(gs)).forEach((b) => {
+               if (!Config.Building[b].output.Worker) {
+                  addMultiplier(b, { output: cappedMultiplier, unstable: true }, buildingName);
                }
             });
          }
+         break;
+      }
+      case "InternationalSpaceStation": {
+         Tick.next.globalMultipliers.storage.push({
+            value: 5 + (building.level - 1),
+            source: buildingName,
+         });
+         break;
+      }
+      case "MarinaBaySands": {
+         Tick.next.globalMultipliers.worker.push({
+            value: 5 + 1 * (building.level - 1),
+            source: buildingName,
+         });
+         break;
+      }
+      case "PalmJumeirah": {
+         Tick.next.globalMultipliers.builderCapacity.push({
+            value: 10 + 2 * (building.level - 1),
+            source: buildingName,
+         });
+         break;
+      }
+      case "AldersonDisk": {
+         Tick.next.globalMultipliers.happiness.push({
+            value: 25 + 5 * (building.level - 1),
+            source: buildingName,
+         });
+         break;
+      }
+      case "DysonSphere": {
+         Tick.next.globalMultipliers.output.push({
+            value: 5 + 1 * (building.level - 1),
+            source: buildingName,
+         });
+         break;
+      }
+      case "MatrioshkaBrain": {
+         Tick.next.globalMultipliers.sciencePerBusyWorker.push({
+            value: 5 + 1 * (building.level - 1),
+            source: buildingName,
+         });
+         Tick.next.globalMultipliers.sciencePerIdleWorker.push({
+            value: 5 + 1 * (building.level - 1),
+            source: buildingName,
+         });
+         const hq = Tick.current.specialBuildings.get("Headquarter");
+         if (hq) {
+            const scienceValue = (hq.building.resources?.Science ?? 0) * SCIENCE_VALUE;
+            Tick.next.totalValue += scienceValue;
+            mapSafeAdd(Tick.next.resourceValueByTile, xy, scienceValue);
+            mapSafeAdd(Tick.next.resourceValues, "Science", scienceValue);
+         }
+         if (building.level > 1) {
+            forEach(Config.Building, (b, def) => {
+               if (def.output.Science) {
+                  addMultiplier(b, { output: building.level - 1 }, buildingName);
+               }
+            });
+         }
+         break;
+      }
+      case "LargeHadronCollider": {
+         const level = 2 + building.level - 1;
+         forEach(Config.GreatPerson, (p, def) => {
+            if (def.age === "InformationAge") {
+               def.tick(def, level, `${buildingName}: ${def.name()}`, GreatPersonTickFlag.None);
+            }
+         });
+         break;
+      }
+      case "OsakaCastle": {
+         for (const point of grid.getRange(tileToPoint(xy), 1)) {
+            Tick.next.powerPlants.add(pointToTile(point));
+         }
+         break;
+      }
+      case "Kanagawa": {
+         const currentAge = getCurrentAge(gs);
+         forEach(Config.GreatPerson, (p, def) => {
+            if (def.age === currentAge) {
+               def.tick(def, 1, `${buildingName}: ${def.name()}`, GreatPersonTickFlag.Unstable);
+            }
+         });
+         break;
+      }
+      case "MountFuji": {
+         const interval = Math.min(fujiTick, (Date.now() - lastFujiGeneratedAt) / 1000);
+         if (interval >= 60) {
+            fujiTick = 0;
+            lastFujiGeneratedAt = Date.now();
+            const petra = Tick.current.specialBuildings.get("Petra");
+            if (petra) {
+               safeAdd(petra.building.resources, "Warp", 20);
+            }
+         } else {
+            fujiTick++;
+         }
+         break;
+      }
+      case "GoldenPavilion": {
+         grid.getRange(tileToPoint(xy), 3).forEach((point) => {
+            const tile = pointToTile(point);
+            const building = gs.tiles.get(tile)?.building;
+            if (!building) {
+               return;
+            }
+            const input = Config.Building[building.type].input;
+            let multiplier = 0;
+            grid.getNeighbors(point).forEach((p) => {
+               const building = gs.tiles.get(pointToTile(p))?.building;
+               if (!building || building.capacity <= 0) {
+                  return;
+               }
+               forEach(Config.Building[building.type].output, (res) => {
+                  if (input[res]) {
+                     ++multiplier;
+                     // break
+                     return true;
+                  }
+               });
+            });
+            mapSafePush(Tick.next.tileMultipliers, tile, {
+               output: multiplier,
+               unstable: true,
+               source: buildingName,
+            });
+         });
          break;
       }
       // case "ArcDeTriomphe": {

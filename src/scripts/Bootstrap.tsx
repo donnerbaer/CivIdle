@@ -171,6 +171,7 @@ export async function startGame(
    tickEverySecond(gameState, false);
 
    if (import.meta.env.DEV) {
+      // showModal(<AdvisorModal advisor="Happiness" />);
       // createRoot(document.getElementById("debug-ui")!).render(<DebugPage />);
    }
 

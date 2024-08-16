@@ -1,6 +1,8 @@
 import type { Building } from "../definitions/BuildingDefinitions";
 import type { IUnlockable } from "../definitions/ITechDefinition";
 import { NoPrice, NoStorage, type Resource } from "../definitions/ResourceDefinitions";
+import type { Tech } from "../definitions/TechDefinitions";
+import type { Grid } from "../utilities/Grid";
 import {
    HOUR,
    clamp,
@@ -17,6 +19,7 @@ import {
    safeAdd,
    shuffle,
    sizeOf,
+   tileToHash,
    tileToPoint,
    type IPointData,
    type Tile,
@@ -46,11 +49,11 @@ import {
    getMaxInputDistance,
    getPowerRequired,
    getResourceImportCapacity,
+   getResourceImportIdleCapacity,
    getStockpileCapacity,
    getStockpileMax,
    getStorageFor,
    getStorageRequired,
-   getWarehouseIdleCapacity,
    getWorkersFor,
    getWorkingBuilding,
    hasEnoughResources,
@@ -58,17 +61,19 @@ import {
    isNaturalWonder,
    isSpecialBuilding,
    isTransportable,
+   isWorldWonder,
    totalMultiplierFor,
    useWorkers,
 } from "./BuildingLogic";
 import { Config } from "./Config";
 import { MANAGED_IMPORT_RANGE } from "./Constants";
 import { GameFeature, hasFeature } from "./FeatureLogic";
-import type { GameState, ITransportationData } from "./GameState";
-import { getGameState } from "./GameStateLogic";
+import type { GameState, ITransportationDataV2 } from "./GameState";
+import { getGameOptions } from "./GameStateLogic";
 import {
    getBuildingIO,
    getBuildingsByType,
+   getFuelByTarget,
    getGrid,
    getStorageFullBuildings,
    getXyBuildings,
@@ -76,7 +81,7 @@ import {
 } from "./IntraTickCache";
 import { calculateEmpireValue } from "./RebirthLogic";
 import { getAmountInTransit } from "./ResourceLogic";
-import type { IBuildingResource, Multiplier } from "./TickLogic";
+import type { MultiplierWithStability } from "./TickLogic";
 import { NotProducingReason, Tick } from "./TickLogic";
 import {
    BuildingInputMode,
@@ -85,6 +90,7 @@ import {
    SuspendedInput,
    WarehouseOptions,
    type IBuildingData,
+   type ICloneBuildingData,
    type IMarketBuildingData,
    type IResourceImportBuildingData,
    type ITileData,
@@ -93,6 +99,7 @@ import {
 
 export const OnPriceUpdated = new TypedEvent<GameState>();
 export const OnBuildingComplete = new TypedEvent<Tile>();
+export const OnTechUnlocked = new TypedEvent<Tech>();
 export const OnBuildingProductionComplete = new TypedEvent<{ xy: Tile; offline: boolean }>();
 export const RequestFloater = new TypedEvent<{ xy: Tile; amount: number }>();
 export const RequestChooseGreatPerson = new TypedEvent<{ permanent: boolean }>();
@@ -112,57 +119,66 @@ export function tickUnlockable(td: IUnlockable, source: string, gs: GameState): 
 
 export function tickTransports(gs: GameState): void {
    const mahTile = Tick.current.specialBuildings.get("MausoleumAtHalicarnassus");
-   const mahPos = mahTile ? getGrid(gs).xyToPosition(mahTile.tile) : null;
-   gs.transportation.forEach((queue) => {
-      filterInPlace(queue, (transport) => {
-         tickTransportation(transport, mahPos);
-         // Has arrived!
-         if (transport.ticksSpent >= transport.ticksRequired) {
-            const building = gs.tiles.get(transport.toXy)?.building;
-            if (building) {
-               safeAdd(building.resources, transport.resource, transport.amount);
+   const grid = getGrid(gs);
+   const mahPos = mahTile ? grid.xyToPosition(mahTile.tile) : null;
+   filterInPlace(gs.transportationV2, (transport) => {
+      // Has arrived!
+      if (tickTransportation(transport, grid, mahPos)) {
+         const building = gs.tiles.get(transport.toXy)?.building;
+         if (building) {
+            safeAdd(building.resources, transport.resource, transport.amount);
+            if (building.type === "CloneFactory") {
+               const clone = building as ICloneBuildingData;
+               clone.transportedAmount += transport.amount;
             }
-            return false;
          }
+         return false;
+      }
 
-         const ev = calculateEmpireValue(transport.resource, transport.amount);
-         mapSafeAdd(Tick.next.resourceValues, transport.resource, ev);
-         Tick.next.totalValue += ev;
-         return true;
-      });
+      const ev = calculateEmpireValue(transport.resource, transport.amount);
+      mapSafeAdd(Tick.next.resourceValues, transport.resource, ev);
+      mapSafeAdd(
+         Tick.next.amountInTransit,
+         hashTileAndRes(transport.toXy, transport.resource),
+         transport.amount,
+      );
+      Tick.next.totalValue += ev;
+      return true;
    });
 }
 
 const _positionCache: IPointData = { x: 0, y: 0 };
 
-function tickTransportation(transport: ITransportationData, mah: IPointData | null): void {
+function tickTransportation(transport: ITransportationDataV2, grid: Grid, mah: IPointData | null): boolean {
+   const fromPosition = grid.xyToPosition(transport.fromXy);
+   const toPosition = grid.xyToPosition(transport.toXy);
+   const totalTick = grid.distanceTile(transport.fromXy, transport.toXy);
+
    // TODO: This needs to be double checked when fuel is implemented!
    if (isTransportable(transport.fuel)) {
       transport.ticksSpent++;
       transport.hasEnoughFuel = true;
-      return;
+      return transport.ticksSpent >= totalTick;
    }
 
-   transport.currentFuelAmount = transport.fuelAmount;
+   transport.fuelCurrentTick = transport.fuelPerTick;
    if (mah) {
-      Vector2.lerp(
-         transport.fromPosition,
-         transport.toPosition,
-         transport.ticksSpent / transport.ticksRequired,
-         _positionCache,
-      );
+      Vector2.lerp(fromPosition, toPosition, transport.ticksSpent / totalTick, _positionCache);
       if (v2(_positionCache).subtractSelf(mah).lengthSqr() <= 200 * 200) {
-         transport.currentFuelAmount = 0;
+         transport.fuelCurrentTick = 0;
       }
    }
 
-   if (getAvailableWorkers(transport.fuel) >= transport.currentFuelAmount) {
-      useWorkers(transport.fuel, transport.currentFuelAmount, null);
+   if (getAvailableWorkers(transport.fuel) >= transport.fuelCurrentTick) {
+      useWorkers(transport.fuel, transport.fuelCurrentTick, null);
+      mapSafeAdd(getFuelByTarget(), transport.toXy, transport.fuelCurrentTick);
       transport.ticksSpent++;
       transport.hasEnoughFuel = true;
    } else {
       transport.hasEnoughFuel = false;
    }
+
+   return transport.ticksSpent >= totalTick;
 }
 
 // This needs to be called after tickTiles
@@ -189,24 +205,30 @@ export function tickPower(gs: GameState): void {
    } while (size !== Tick.next.powerGrid.size);
 }
 
-export function tickTiles(gs: GameState, offline: boolean): void {
-   Array.from(getXyBuildings(gs).entries())
-      .sort(([_a, buildingA], [_b, buildingB]) => {
-         const diff = getCurrentPriority(buildingB, gs) - getCurrentPriority(buildingA, gs);
-         if (diff !== 0) {
-            return diff;
-         }
-         return (Config.BuildingTier[buildingA.type] ?? 0) - (Config.BuildingTier[buildingB.type] ?? 0);
-      })
-      .forEach(([tile, _]) => tickTile(tile, gs, offline));
+export function getSortedTiles(gs: GameState): [Tile, IBuildingData][] {
+   return Array.from(getXyBuildings(gs)).sort(([_a, buildingA], [_b, buildingB]) => {
+      const diff = getCurrentPriority(buildingB, gs) - getCurrentPriority(buildingA, gs);
+      if (diff !== 0) {
+         return diff;
+      }
+      return (Config.BuildingTier[buildingA.type] ?? 0) - (Config.BuildingTier[buildingB.type] ?? 0);
+   });
 }
 
-function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
-   const tile = gs.tiles.get(xy)!;
-   const building = tile.building!;
+export function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
+   const tile = gs.tiles.get(xy);
+   if (!tile) {
+      return;
+   }
+   const building = tile.building;
+   if (!building) {
+      return;
+   }
    if (isNaturalWonder(building.type) && !tile.explored) {
       return;
    }
+
+   const transportSourceCache = offline || getGameOptions().enableTransportSourceCache;
 
    if (building.desiredLevel > building.level) {
       building.status = building.level > 0 ? "upgrading" : "building";
@@ -226,56 +248,89 @@ function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
    mapSafeAdd(Tick.next.buildingValues, building.type, bev);
    Tick.next.totalValue += bev;
 
-   if (building.status === "building" || building.status === "upgrading") {
-      const cost = getBuildingCost(building);
-      const { total } = getBuilderCapacity(building, xy, gs);
-      building.suspendedInput.forEach((_, res) => {
-         if (!cost[res]) {
-            building.suspendedInput.delete(res);
-         }
-      });
-      const enabledResourceCount = sizeOf(cost) - building.suspendedInput.size;
-      const builderCapacityPerResource = enabledResourceCount > 0 ? total / enabledResourceCount : 0;
+   // Tabulate resources before we early return
+   // Note that `resourcesByTile` includes buildings that are "building" and "upgrading".
+   // This is for cache purpose. We will filter them out when actually transporting resources
+   const { total, used } = getStorageFor(xy, gs);
 
-      // Construction / Upgrade is paused!
-      if (builderCapacityPerResource <= 0) {
+   const isResourceImportBuilding = "resourceImports" in building;
+
+   forEach(building.resources, (res, amount) => {
+      if (!Number.isFinite(amount) || amount <= 0) {
          return;
       }
 
-      let completed = true;
+      const rev = calculateEmpireValue(res, amount);
+      Tick.next.totalValue += rev;
+      mapSafeAdd(Tick.next.resourceValueByTile, xy, rev);
+      mapSafeAdd(Tick.next.resourceValues, res, rev);
 
-      forEach(cost, (res, amount) => {
+      // Resource in buildings that are not completed are not tabulated because technically it is not
+      // usable by other buildings. This is an old behavior that is apparently desired
+      if (building.status === "completed") {
+         mapSafeAdd(Tick.next.resourceAmount, res, amount);
+      }
+
+      // We do not add Warehouse/Caravansary in `resourcesByTile`, because we need to consider as transport
+      // sources anyway!
+      if (!isResourceImportBuilding) {
+         mapSafePush(Tick.next.resourcesByTile, res, {
+            tile: xy,
+            amount,
+            usedStoragePercentage: used / total,
+         });
+      }
+   });
+
+   if (isResourceImportBuilding) {
+      Tick.next.resourceImportBuildings.set(xy, {
+         building: building as IResourceImportBuildingData,
+         tile: xy,
+         usedStoragePercentage: used / total,
+      });
+   }
+
+   if (building.status === "building" || building.status === "upgrading") {
+      const cost = getBuildingCost(building);
+      const { total } = getBuilderCapacity(building, xy, gs);
+
+      const toTransport = new Map<Resource, number>();
+      let completed = true;
+      forEach(cost, function checkConstructionUpgradeResources(res, amount) {
          const amountArrived = building.resources[res] ?? 0;
          // Already full
          if (amountArrived >= amount) {
             building.suspendedInput.set(res, SuspendedInput.AutoSuspended);
-            // continue;
-            return false;
-         }
-         // Will be full
-         const amountLeft = amount - getAmountInTransit(xy, res, gs) - amountArrived;
-         if (amountLeft <= 0) {
-            completed = false;
-            // continue;
-            return false;
+            return;
          }
          completed = false;
-         if (building.suspendedInput.get(res) === SuspendedInput.ManualSuspended) {
-            return false;
+         // Will be full
+         const amountLeft = amount - getAmountInTransit(xy, res) - amountArrived;
+         if (amountLeft <= 0) {
+            return;
          }
-
+         if (building.suspendedInput.get(res) === SuspendedInput.ManualSuspended) {
+            return;
+         }
          building.suspendedInput.delete(res);
-         // Each transportation costs 1 worker, and deliver Total (=Builder Capacity x Multiplier) resources
-         transportResource(
-            res,
-            clamp(amountLeft, 0, builderCapacityPerResource),
-            builderCapacityPerResource,
-            xy,
-            gs,
-            getInputMode(building, gs),
-            defaultTransportFilter(building, gs),
-         );
+         toTransport.set(res, amount);
       });
+
+      if (toTransport.size > 0) {
+         const builderCapacityPerResource = total / toTransport.size;
+         toTransport.forEach(function transportConstructionUpgradeResources(amount, res) {
+            // Each transportation costs 1 worker, and deliver Total (=Builder Capacity x Multiplier) resources
+            transportResource(
+               res,
+               clamp(amount, 0, builderCapacityPerResource),
+               builderCapacityPerResource,
+               xy,
+               gs,
+               getInputMode(building, gs),
+               transportSourceCache,
+            );
+         });
+      }
 
       if (completed) {
          building.level++;
@@ -291,16 +346,11 @@ function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
             building.status = "completed";
          }
       }
-      forEach(building.resources, (res, amount) => {
-         if (!Number.isFinite(amount) || amount <= 0) {
-            return;
-         }
 
-         const rev = calculateEmpireValue(res, amount);
-         Tick.next.totalValue += rev;
-         mapSafeAdd(Tick.next.resourceValueByTile, xy, rev);
-         mapSafeAdd(Tick.next.resourceValues, res, rev);
-      });
+      if (building.status === "upgrading" && isWorldWonder(building.type)) {
+         OnBuildingProductionComplete.emit({ xy, offline });
+      }
+
       return;
    }
 
@@ -364,27 +414,6 @@ function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
       Tick.next.specialBuildings.set(building.type, tile as Required<ITileData>);
    }
 
-   // Tabulate resources before we early return //////////////////////////////////////////////////////////////
-   const { total, used } = getStorageFor(xy, gs);
-
-   forEach(building.resources, (res, amount) => {
-      if (!Number.isFinite(amount) || amount <= 0) {
-         return;
-      }
-
-      const rev = calculateEmpireValue(res, amount);
-      Tick.next.totalValue += rev;
-      mapSafeAdd(Tick.next.resourceValueByTile, xy, rev);
-      mapSafeAdd(Tick.next.resourceValues, res, rev);
-
-      mapSafePush(Tick.next.resourcesByTile, res, {
-         tile: xy,
-         amount,
-         totalStorage: total,
-         usedStorage: used,
-      });
-   });
-
    // Tick.current.totalValue > 0 here is to check whether the tick is ready! Otherwise we get a split second
    // of wrong number
    if (Tick.current.totalValue > 0 && total > 0) {
@@ -416,12 +445,12 @@ function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
 
    let hasTransported = false;
 
-   forEach(input, (res, rawAmount) => {
+   forEach(input, function forEachTransportResources(res, rawAmount) {
       let amount = rawAmount * getStockpileCapacity(building);
       if (amount <= 0) {
          return;
       }
-      if (used + getStorageRequired({ [res]: amount }) > total) {
+      if (used + (isTransportable(res) ? amount : 0) > total) {
          return;
       }
 
@@ -432,7 +461,14 @@ function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
          maxAmount = ri.resourceImports[res]?.cap ?? 0;
       }
 
-      if ((building.resources[res] ?? 0) + getAmountInTransit(xy, res, gs) > maxAmount) {
+      let availableAmount = building.resources[res] ?? 0;
+
+      if (building.type === "CloneFactory") {
+         const clone = building as ICloneBuildingData;
+         availableAmount = Math.min(availableAmount, clone.transportedAmount);
+      }
+
+      if (availableAmount + getAmountInTransit(xy, res) > maxAmount) {
          return;
       }
 
@@ -446,15 +482,7 @@ function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
          }
       }
 
-      transportResource(
-         res,
-         amount,
-         inputWorkerCapacity,
-         xy,
-         gs,
-         inputMode,
-         defaultTransportFilter(building, gs),
-      );
+      transportResource(res, amount, inputWorkerCapacity, xy, gs, inputMode, transportSourceCache);
       hasTransported = true;
    });
 
@@ -470,7 +498,7 @@ function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
    if (building.type === "Market") {
       const market = building as IMarketBuildingData;
       let totalBought = 0;
-      forEach(market.sellResources, (sellResource) => {
+      forEach(market.sellResources, function marketProduction(sellResource) {
          const buyResource = market.availableResources[sellResource];
          if (!buyResource) {
             delete market.sellResources[sellResource];
@@ -501,10 +529,24 @@ function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
       if (hasFeature(GameFeature.WarehouseUpgrade, gs) && "warehouseOptions" in building) {
          const warehouse = building as IWarehouseBuildingData;
          if (hasFlag(warehouse.warehouseOptions, WarehouseOptions.Autopilot)) {
-            tickWarehouseAutopilot(warehouse, xy, gs);
+            tickWarehouseAutopilot(warehouse, xy, transportSourceCache, gs);
          }
       }
       return;
+   }
+
+   if (building.type === "CloneFactory") {
+      const clone = building as ICloneBuildingData;
+      const requiredAmount = input[clone.inputResource] ?? 0;
+      const transportedAmount = Math.min(
+         clone.transportedAmount,
+         building.resources[clone.inputResource] ?? 0,
+      );
+      if (transportedAmount < requiredAmount) {
+         Tick.next.notProducingReasons.set(xy, NotProducingReason.NotEnoughResources);
+         return;
+      }
+      clone.transportedAmount -= requiredAmount;
    }
 
    ////////// Power
@@ -570,14 +612,17 @@ function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
       canBeElectrified(building.type) &&
       building.electrification > 0
    ) {
-      building.electrification = clamp(building.electrification, 0, building.level);
+      let electrification = clamp(building.electrification, 0, building.level);
+      if (gs.unlockedUpgrades.Liberalism5) {
+         electrification *= 2;
+      }
       const requiredPower = getPowerRequired(building);
       if (getAvailableWorkers("Power") >= requiredPower) {
          useWorkers("Power", requiredPower, xy);
          mapSafePush(Tick.next.tileMultipliers, xy, {
             source: t(L.Electrification),
-            input: building.electrification * getElectrificationEfficiency(building.type),
-            output: building.electrification,
+            input: electrification * getElectrificationEfficiency(building.type),
+            output: electrification,
             unstable: true,
          });
          Tick.next.electrified.add(xy);
@@ -608,8 +653,16 @@ function tickTile(xy: Tile, gs: GameState, offline: boolean): void {
    OnBuildingProductionComplete.emit({ xy, offline });
 }
 
-function tickWarehouseAutopilot(warehouse: IWarehouseBuildingData, xy: Tile, gs: GameState): void {
-   let capacity = getWarehouseIdleCapacity(xy, gs);
+function tickWarehouseAutopilot(
+   warehouse: IWarehouseBuildingData,
+   xy: Tile,
+   transportSourceCache: boolean,
+   gs: GameState,
+): void {
+   let capacity = getResourceImportIdleCapacity(xy, gs);
+   if (capacity <= 0) {
+      return;
+   }
    const workerCapacity = totalMultiplierFor(xy, "worker", 1, false, gs);
    const transportCapacity =
       workerCapacity +
@@ -665,9 +718,8 @@ function tickWarehouseAutopilot(warehouse: IWarehouseBuildingData, xy: Tile, gs:
             xy,
             gs,
             BuildingInputMode.Distance,
-            (source, destTile) => {
-               return source.tile === tile;
-            },
+            transportSourceCache,
+            [tile],
          );
          if (capacityLeft < capacity) {
             Tick.next.notProducingReasons.delete(xy);
@@ -680,17 +732,16 @@ function tickWarehouseAutopilot(warehouse: IWarehouseBuildingData, xy: Tile, gs:
    }
 }
 
-type TransportFilterFunc = (source: IBuildingResource, dest: Tile) => boolean;
+export type TileAndRes = number;
 
-function defaultTransportFilter(building: IBuildingData, gs: GameState): TransportFilterFunc {
-   return (source: IBuildingResource, dest: Tile) => {
-      const grid = getGrid(getGameState());
-      const maxDistance = getMaxInputDistance(building, gs);
-      if (maxDistance === Number.POSITIVE_INFINITY) {
-         return true;
-      }
-      return grid.distanceTile(source.tile, dest) <= maxDistance;
-   };
+export function hashTileAndRes(xy: Tile, res: Resource): TileAndRes {
+   return (tileToHash(xy) << 12) | Config.ResourceHash[res]!;
+}
+
+const _transportSourceCache = new Map<TileAndRes, Tile[]>();
+
+export function clearTransportSourceCache(): void {
+   _transportSourceCache.clear();
 }
 
 export function transportResource(
@@ -700,7 +751,8 @@ export function transportResource(
    targetXy: Tile,
    gs: GameState,
    mode: BuildingInputMode,
-   filterFunc: TransportFilterFunc,
+   transportSourceCache: boolean,
+   sourcesOverride: Tile[] | undefined = undefined,
 ): number {
    let amountLeft = amount;
    const grid = getGrid(gs);
@@ -709,34 +761,84 @@ export function transportResource(
    if (getAvailableWorkers("Worker") <= 0) {
       return amountLeft;
    }
-   const sources = Tick.current.resourcesByTile
-      .get(res)
-      ?.filter((s) => filterFunc(s, targetXy))
-      .sort((point1, point2) => {
-         switch (mode) {
-            case BuildingInputMode.Distance:
-               return grid.distanceTile(point1.tile, targetXy) - grid.distanceTile(point2.tile, targetXy);
-            case BuildingInputMode.Amount:
-               return point2.amount - point1.amount;
-            case BuildingInputMode.StoragePercentage:
-               return point2.usedStorage / point2.totalStorage - point1.usedStorage / point1.totalStorage;
-         }
+
+   const targetBuilding = gs.tiles.get(targetXy)?.building;
+   if (!targetBuilding) {
+      return amountLeft;
+   }
+   // This cache needs to be cleared when:
+   // 1) Building has changed (add, remove and move)
+   // 2) [THIS IS NO LONGER TRUE] ~Building's max input distance has changed~
+   // Also, we can only cache Distance Input Mode. We cannot cache Warehouse (due to Managed Mode)
+   const cacheKey =
+      transportSourceCache && mode === BuildingInputMode.Distance && !("resourceImports" in targetBuilding)
+         ? hashTileAndRes(targetXy, res)
+         : null;
+
+   let sources: Tile[] | undefined;
+
+   if (sourcesOverride) {
+      sources = sourcesOverride;
+   }
+
+   if (!sources && cacheKey) {
+      sources = _transportSourceCache.get(cacheKey);
+   }
+
+   if (!sources) {
+      const candidates = Tick.current.resourcesByTile.get(res)?.slice() ?? [];
+      // We need to add all Warehouse/Caravansary here, because it is excluded from `resourcesByTile`
+      Tick.current.resourceImportBuildings.forEach((b, xy) => {
+         candidates.push({
+            tile: xy,
+            amount: b.building.resources[res] ?? 0,
+            usedStoragePercentage: b.usedStoragePercentage,
+         });
       });
+      sources = candidates
+         .sort((point1, point2) => {
+            switch (mode) {
+               case BuildingInputMode.Distance:
+                  return grid.distanceTile(point1.tile, targetXy) - grid.distanceTile(point2.tile, targetXy);
+               case BuildingInputMode.Amount:
+                  return point2.amount - point1.amount;
+               case BuildingInputMode.StoragePercentage:
+                  return point2.usedStoragePercentage - point1.usedStoragePercentage;
+            }
+         })
+         .map((s) => s.tile);
+
+      if (transportSourceCache && cacheKey && sources) {
+         _transportSourceCache.set(cacheKey, sources);
+      }
+   }
+
    if (!sources) {
       return amountLeft;
    }
+
    for (let i = 0; i < sources.length; i++) {
       const from = sources[i];
-      const point = tileToPoint(from.tile);
-      const building = gs.tiles.get(from.tile)?.building;
-      if (!building) {
+      const sourceBuilding = gs.tiles.get(from)?.building;
+
+      // Do all the filtering logic here (after cache), so that cache always have the most complete list)
+      if (!sourceBuilding || sourceBuilding.status !== "completed" || from === targetXy) {
          continue;
       }
-      if (from.tile === targetXy) {
+      if (
+         targetBuilding?.type === "CloneFactory" &&
+         targetBuilding?.status === "completed" &&
+         !Config.Building[sourceBuilding.type].output[res]
+      ) {
          continue;
       }
 
-      const availableAmount = getAvailableResource(from.tile, targetXy, res, gs);
+      const maxDistance = getMaxInputDistance(targetBuilding, gs);
+      if (maxDistance !== Number.POSITIVE_INFINITY && grid.distanceTile(from, targetXy) > maxDistance) {
+         continue;
+      }
+
+      const availableAmount = getAvailableResource(from, targetXy, res, gs);
       if (availableAmount <= 0) {
          continue;
       }
@@ -745,32 +847,36 @@ export function transportResource(
          workerCapacity +
          Tick.current.globalMultipliers.transportCapacity.reduce((prev, curr) => prev + curr.value, 0);
 
-      if (
-         hasFeature(GameFeature.WarehouseUpgrade, gs) &&
-         (gs.tiles.get(from.tile)?.building?.type === "Warehouse" ||
-            gs.tiles.get(targetXy)?.building?.type === "Warehouse")
-      ) {
-         const distance = getGrid(gs).distance(point.x, point.y, targetPoint.x, targetPoint.y);
-         if (distance <= 1) {
+      const fromBuildingType = gs.tiles.get(from)?.building?.type;
+      const toBuildingType = gs.tiles.get(targetXy)?.building?.type;
+
+      if (fromBuildingType === "Warehouse" || toBuildingType === "Warehouse") {
+         if (gs.unlockedUpgrades.Liberalism3) {
             transportCapacity = Number.POSITIVE_INFINITY;
+         } else if (hasFeature(GameFeature.WarehouseUpgrade, gs)) {
+            const point = tileToPoint(from);
+            const distance = getGrid(gs).distance(point.x, point.y, targetPoint.x, targetPoint.y);
+            if (distance <= 1) {
+               transportCapacity = Number.POSITIVE_INFINITY;
+            }
          }
+      }
+
+      if (toBuildingType && Config.Building[toBuildingType].output.Worker) {
+         transportCapacity = Number.POSITIVE_INFINITY;
       }
 
       if (availableAmount >= amountLeft) {
          const fuelAmount = Math.ceil(amountLeft / transportCapacity);
          const fuelLeft = getAvailableWorkers("Worker");
          if (fuelLeft >= fuelAmount) {
-            building.resources[res]! -= amountLeft;
-            from.amount -= amountLeft;
-            from.usedStorage -= amountLeft;
-            addTransportation(res, amountLeft, "Worker", fuelAmount, from.tile, targetXy, gs);
+            sourceBuilding.resources[res]! -= amountLeft;
+            addTransportation(res, amountLeft, "Worker", fuelAmount, from, targetXy, gs);
             amountLeft = 0;
          } else if (fuelLeft > 0) {
             const amountAfterFuel = (amountLeft * fuelLeft) / fuelAmount;
-            building.resources[res]! -= amountAfterFuel;
-            from.amount -= amountAfterFuel;
-            from.usedStorage -= amountAfterFuel;
-            addTransportation(res, amountAfterFuel, "Worker", fuelLeft, from.tile, targetXy, gs);
+            sourceBuilding.resources[res]! -= amountAfterFuel;
+            addTransportation(res, amountAfterFuel, "Worker", fuelLeft, from, targetXy, gs);
             amountLeft -= amountAfterFuel;
          }
          // Here we return because either we've got all we need, or we run out of workers (no need to continue)
@@ -780,18 +886,14 @@ export function transportResource(
       const fuelAmount = Math.ceil(amountToTransport / transportCapacity);
       const fuelLeft = getAvailableWorkers("Worker");
       if (fuelLeft >= fuelAmount) {
-         building.resources[res]! -= amountToTransport;
-         from.amount -= amountToTransport;
-         from.usedStorage -= amountToTransport;
-         addTransportation(res, amountToTransport, "Worker", fuelAmount, from.tile, targetXy, gs);
+         sourceBuilding.resources[res]! -= amountToTransport;
+         addTransportation(res, amountToTransport, "Worker", fuelAmount, from, targetXy, gs);
          amountLeft -= amountToTransport;
          // We continue here because the next source might have what we need
       } else if (fuelLeft > 0) {
          const amountAfterFuel = (amountToTransport * fuelLeft) / fuelAmount;
-         building.resources[res]! -= amountAfterFuel;
-         from.amount -= amountAfterFuel;
-         from.usedStorage -= amountAfterFuel;
-         addTransportation(res, amountAfterFuel, "Worker", fuelLeft, from.tile, targetXy, gs);
+         sourceBuilding.resources[res]! -= amountAfterFuel;
+         addTransportation(res, amountAfterFuel, "Worker", fuelLeft, from, targetXy, gs);
          amountLeft -= amountAfterFuel;
          // We return here because we run out of workers (no need to continue)
          return amountLeft;
@@ -800,7 +902,7 @@ export function transportResource(
    return amountLeft;
 }
 
-export function addMultiplier(k: Building, multiplier: Multiplier & { unstable?: boolean }, source: string) {
+export function addMultiplier(k: Building, multiplier: MultiplierWithStability, source: string) {
    let m = Tick.next.buildingMultipliers.get(k);
    if (m == null) {
       m = [];

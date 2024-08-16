@@ -2,8 +2,10 @@ import Tippy from "@tippyjs/react";
 import { useState } from "react";
 import { isSpecialBuilding } from "../../../shared/logic/BuildingLogic";
 import { notifyGameStateUpdate } from "../../../shared/logic/GameStateLogic";
+import { clearIntraTickCache } from "../../../shared/logic/IntraTickCache";
 import { RequestResetTile } from "../../../shared/logic/TechLogic";
 import { Tick } from "../../../shared/logic/TickLogic";
+import { clearTransportSourceCache } from "../../../shared/logic/Update";
 import { pointToTile, safeAdd } from "../../../shared/utilities/Helper";
 import { L, t } from "../../../shared/utilities/i18n";
 import { WorldScene } from "../scenes/WorldScene";
@@ -22,6 +24,7 @@ export function BuildingSellComponent({ gameState, xy }: IBuildingComponentProps
    const sellBuilding = () => {
       delete tile!.building;
       Singleton().sceneManager.enqueue(WorldScene, (s) => s.resetTile(tile!.tile));
+      clearTransportSourceCache();
       notifyGameStateUpdate();
    };
    useShortcut("BuildingPageSellBuilding", sellBuilding, [xy]);
@@ -58,6 +61,8 @@ export function BuildingSellComponent({ gameState, xy }: IBuildingComponentProps
                      RequestResetTile.emit(tile.tile);
                      RequestResetTile.emit(newTile.tile);
                      notifyGameStateUpdate();
+                     clearTransportSourceCache();
+                     clearIntraTickCache();
                      Singleton().sceneManager.getCurrent(WorldScene)?.selectGrid(point);
                   } else {
                      showToast(L.MoveBuildingFail);

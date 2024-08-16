@@ -100,7 +100,7 @@ export class TechDefinitions {
       name: () => t(L.Counting),
       column: 1,
       requireTech: ["Logging", "StoneTools"],
-      unlockBuilding: ["LumberMill"],
+      unlockBuilding: ["LumberMill", "Statistics"],
    };
 
    Farming: ITechDefinition = {
@@ -130,7 +130,7 @@ export class TechDefinitions {
    Herding: ITechDefinition = {
       name: () => t(L.Herding),
       column: 2,
-      unlockBuilding: ["LivestockFarm"],
+      unlockBuilding: ["PoultryFarm", "DairyFarm"],
       requireTech: ["Counting", "Farming"],
       additionalUpgrades: () => [t(L.TechProductionPriority)],
    };
@@ -154,7 +154,7 @@ export class TechDefinitions {
       name: () => t(L.Stateship),
       column: 3,
       requireTech: ["Housing"],
-      unlockBuilding: ["FlourMill", "CottonPlantation"],
+      unlockBuilding: ["FlourMill"],
    };
 
    Market: ITechDefinition = {
@@ -168,7 +168,7 @@ export class TechDefinitions {
       name: () => t(L.Arithmetic),
       column: 3,
       requireTech: ["Herding", "HorsebackRiding"],
-      unlockBuilding: ["Statistics"],
+      unlockBuilding: ["CottonPlantation"],
    };
 
    Writing: ITechDefinition = {
@@ -295,7 +295,7 @@ export class TechDefinitions {
       name: () => t(L.Library),
       column: 7,
       requireTech: ["Literature"],
-      unlockBuilding: ["Library", "Glassworks"],
+      unlockBuilding: ["Library", "Glassworks", "PoetrySchool"],
    };
 
    Architecture: ITechDefinition = {
@@ -335,7 +335,10 @@ export class TechDefinitions {
       buildingMultiplier: {
          Library: { output: 1 },
       },
-      additionalUpgrades: () => [t(L.SeaTradeUpgrade, { tariff: formatPercent(SEA_TILE_COST_1) })],
+      additionalUpgrades: () => [
+         t(L.SeaTradeUpgrade, { tariff: formatPercent(SEA_TILE_COST_1) }),
+         t(L.ExplorerRangeUpgradeDesc, { range: 2 }),
+      ],
    };
 
    Physics: ITechDefinition = {
@@ -513,6 +516,7 @@ export class TechDefinitions {
       globalMultiplier: {
          storage: 1,
       },
+      additionalUpgrades: () => [t(L.ExplorerRangeUpgradeDesc, { range: 3 })],
    };
 
    Capitalism: ITechDefinition = {
@@ -527,7 +531,7 @@ export class TechDefinitions {
          School: { output: 1 },
          University: { output: 1 },
       },
-      unlockBuilding: ["Parliament"],
+      unlockBuilding: ["Parliament", "BigBen"],
       additionalUpgrades: () => [t(L.SeaTradeUpgrade, { tariff: formatPercent(SEA_TILE_COST_3) })],
    };
 
@@ -643,6 +647,7 @@ export class TechDefinitions {
       column: 18,
       requireTech: ["Combustion", "Electrolysis"],
       unlockBuilding: ["BiplaneFactory"],
+      additionalUpgrades: () => [t(L.ExplorerRangeUpgradeDesc, { range: 4 })],
    };
 
    Synthetics: ITechDefinition = {
@@ -811,7 +816,7 @@ export class TechDefinitions {
       name: () => t(L.Computer),
       column: 23,
       requireTech: ["Semiconductor", "Television"],
-      unlockBuilding: ["ComputerFactory"],
+      unlockBuilding: ["ComputerFactory", "ComputerLab"],
    };
 
    Globalization: ITechDefinition = {
@@ -825,7 +830,7 @@ export class TechDefinitions {
       name: () => t(L.Nanotechnology),
       column: 24,
       requireTech: ["MutualAssuredDestruction", "SpaceProgram"],
-      unlockBuilding: ["MaglevFactory"],
+      unlockBuilding: ["MaglevFactory", "InternationalSpaceStation"],
    };
    Software: ITechDefinition = {
       name: () => t(L.Software),
@@ -850,7 +855,7 @@ export class TechDefinitions {
       name: () => t(L.Genetics),
       column: 25,
       requireTech: ["Nanotechnology", "Software"],
-      unlockBuilding: ["CloneFactory"],
+      unlockBuilding: ["CloneFactory", "CloneLab"],
    };
    CloudComputing: ITechDefinition = {
       name: () => t(L.CloudComputing),
@@ -862,13 +867,13 @@ export class TechDefinitions {
       name: () => t(L.SocialNetwork),
       column: 25,
       requireTech: ["WorldWideWeb"],
-      unlockBuilding: ["CivTok"],
+      unlockBuilding: ["CivTok", "MarinaBaySands"],
    };
    FinancialArbitrage: ITechDefinition = {
       name: () => t(L.FinancialArbitrage),
       column: 25,
       requireTech: ["FinancialLeverage", "WorldWideWeb"],
-      unlockBuilding: ["HedgeFund"],
+      unlockBuilding: ["HedgeFund", "Peacekeeper"],
    };
 
    Robotics: ITechDefinition = {
@@ -887,18 +892,19 @@ export class TechDefinitions {
       name: () => t(L.VirtualReality),
       column: 26,
       requireTech: ["SocialNetwork", "CloudComputing"],
-      unlockBuilding: ["CivOasis", "Peacekeeper"],
+      unlockBuilding: ["CivOasis", "LargeHadronCollider"],
    };
    Blockchain: ITechDefinition = {
       name: () => t(L.Blockchain),
       column: 26,
       requireTech: ["FinancialArbitrage", "SocialNetwork"],
-      unlockBuilding: ["BitcoinMiner"],
+      unlockBuilding: ["BitcoinMiner", "PalmJumeirah"],
    };
    Future: ITechDefinition = {
       name: () => t(L.Future),
       column: 27,
       requireTech: ["Blockchain", "VirtualReality", "Robotics", "ArtificialIntelligence"],
+      unlockBuilding: ["AldersonDisk", "DysonSphere", "MatrioshkaBrain"],
    };
 }
 

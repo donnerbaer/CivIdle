@@ -1,3 +1,5 @@
+import { Advisors } from "../../../shared/definitions/AdvisorDefinitions";
+import { GreatPersonTickFlag } from "../../../shared/definitions/GreatPersonDefinitions";
 import { OnTileExplored, getScienceFromWorkers } from "../../../shared/logic/BuildingLogic";
 import { Config } from "../../../shared/logic/Config";
 import type { GameState } from "../../../shared/logic/GameState";
@@ -17,19 +19,21 @@ import {
    OnPriceUpdated,
    RequestChooseGreatPerson,
    RequestFloater,
+   getSortedTiles,
    tickPower,
    tickPrice,
-   tickTiles,
+   tickTile,
    tickTransports,
    tickUnlockable,
 } from "../../../shared/logic/Update";
-import { forEach, safeAdd } from "../../../shared/utilities/Helper";
+import { clamp, forEach, safeAdd, type Tile } from "../../../shared/utilities/Helper";
 import { L, t } from "../../../shared/utilities/i18n";
 import { saveGame } from "../Global";
 import { isSteam } from "../rpc/SteamClient";
 import { WorldScene } from "../scenes/WorldScene";
+import { AdvisorModal } from "../ui/AdvisorModal";
 import { ChooseGreatPersonModal } from "../ui/ChooseGreatPersonModal";
-import { showModal, showToast } from "../ui/GlobalModal";
+import { hasOpenModal, showModal, showToast } from "../ui/GlobalModal";
 import { makeObservableHook } from "../utilities/Hook";
 import { Singleton } from "../utilities/Singleton";
 import { playAgeUp, playDing } from "../visuals/Sound";
@@ -42,6 +46,7 @@ export function shouldTick(): boolean {
 }
 
 let timeSinceLastTick = 0;
+
 export function tickEveryFrame(gs: GameState, dt: number) {
    timeSinceLastTick = Math.min(timeSinceLastTick + dt, 1);
    const worldScene = Singleton().sceneManager.getCurrent(WorldScene);
@@ -51,10 +56,18 @@ export function tickEveryFrame(gs: GameState, dt: number) {
       }
       worldScene.updateTransportVisual(gs, timeSinceLastTick);
    }
+
+   const targetProgress = Math.ceil(timeSinceLastTick * tickTileQueueSize * Singleton().ticker.speedUp);
+   const currentProgress = tickTileQueueSize - tickTileQueue.length;
+   const toProcess = clamp(targetProgress - currentProgress, 0, tickTileQueue.length);
+   tickTileQueue.splice(0, toProcess).forEach((tile) => tickTile(tile, gs, false));
 }
 
 const heartbeatFreq = import.meta.env.DEV ? 10 : 60;
 const saveFreq = isSteam() ? 60 : 10;
+
+let tickTileQueue: Tile[] = [];
+let tickTileQueueSize = 0;
 
 let currentSessionTick = 0;
 export function tickEverySecond(gs: GameState, offline: boolean) {
@@ -63,6 +76,12 @@ export function tickEverySecond(gs: GameState, offline: boolean) {
       return;
    }
    timeSinceLastTick = 0;
+
+   if (!offline) {
+      tickTileQueue.forEach((tile) => tickTile(tile, gs, false));
+      postTickTiles(gs, false);
+   }
+
    Tick.next.tick = ++currentSessionTick;
    Tick.current = freezeTickData(Tick.next);
    Tick.next = EmptyTickData();
@@ -79,17 +98,58 @@ export function tickEverySecond(gs: GameState, offline: boolean) {
          greatPerson,
          getGreatPersonThisRunLevel(level),
          t(L.SourceGreatPerson, { person: greatPerson.name() }),
+         GreatPersonTickFlag.None,
       );
    });
 
    forEach(getGameOptions().greatPeople, (person, v) => {
       const greatPerson = Config.GreatPerson[person];
-      greatPerson.tick(greatPerson, v.level, t(L.SourceGreatPersonPermanent, { person: greatPerson.name() }));
+      greatPerson.tick(
+         greatPerson,
+         v.level,
+         t(L.SourceGreatPersonPermanent, { person: greatPerson.name() }),
+         GreatPersonTickFlag.None,
+      );
    });
 
    tickPrice(gs);
    tickTransports(gs);
-   tickTiles(gs, offline);
+
+   const tiles = getSortedTiles(gs);
+
+   if (offline) {
+      tiles.forEach(function forEachTickTile([tile, _building]) {
+         tickTile(tile, gs, offline);
+      });
+      postTickTiles(gs, offline);
+   } else {
+      tickTileQueue = tiles.map(([tile, _building]) => tile);
+      tickTileQueueSize = tickTileQueue.length;
+      checkForAdvisors(gs);
+   }
+}
+
+function checkForAdvisors(gs: GameState) {
+   if (gs.tick % 10 !== 0) {
+      return;
+   }
+   if (hasOpenModal()) {
+      return;
+   }
+   const options = getGameOptions();
+
+   forEach(Advisors, (k, v) => {
+      if (!options.disabledTutorials.has(k) && v.condition(gs)) {
+         showModal(<AdvisorModal advisor={k} />);
+         // break
+         return true;
+      }
+   });
+}
+
+let lastTickTime = Date.now();
+
+function postTickTiles(gs: GameState, offline: boolean) {
    tickPower(gs);
 
    Tick.next.happiness = calculateHappiness(gs);
@@ -100,6 +160,11 @@ export function tickEverySecond(gs: GameState, offline: boolean) {
    }
 
    ++gs.tick;
+
+   while (Date.now() - lastTickTime > 1000) {
+      lastTickTime += 1000;
+      ++gs.seconds;
+   }
 
    if (!offline) {
       const speed = Singleton().ticker.speedUp;

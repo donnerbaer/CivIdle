@@ -1,13 +1,9 @@
 import Tippy from "@tippyjs/react";
 import classNames from "classnames";
 import { useState } from "react";
-import type { IBuildingDefinition } from "../../../shared/definitions/BuildingDefinitions";
-import {
-   NoPrice,
-   NoStorage,
-   type Resource,
-   type ResourceDefinitions,
-} from "../../../shared/definitions/ResourceDefinitions";
+import { TableVirtuoso } from "react-virtuoso";
+import { BuildingSpecial, type IBuildingDefinition } from "../../../shared/definitions/BuildingDefinitions";
+import { NoPrice, NoStorage, type Resource } from "../../../shared/definitions/ResourceDefinitions";
 import {
    IOCalculation,
    getElectrificationStatus,
@@ -18,8 +14,10 @@ import { Config } from "../../../shared/logic/Config";
 import { EXPLORER_SECONDS, MAX_EXPLORER } from "../../../shared/logic/Constants";
 import {
    getBuildingIO,
+   getFuelByTarget,
    getResourceIO,
    getTransportStat,
+   getXyBuildings,
    unlockedResources,
 } from "../../../shared/logic/IntraTickCache";
 import { getScienceAmount } from "../../../shared/logic/TechLogic";
@@ -57,10 +55,13 @@ export function StatisticsBuildingBody({ gameState, xy }: IBuildingComponentProp
    }
    const [currentTab, setCurrentTab] = useState<Tab>(savedStatisticsTab);
    let content: React.ReactNode = null;
+   let extraClass = "";
    if (currentTab === "resources") {
+      extraClass = "col f1";
       savedStatisticsTab = "resources";
       content = <ResourcesTab gameState={gameState} xy={xy} />;
    } else if (currentTab === "buildings") {
+      extraClass = "col f1";
       savedStatisticsTab = "buildings";
       content = <BuildingTab gameState={gameState} xy={xy} />;
    } else if (currentTab === "empire") {
@@ -68,7 +69,7 @@ export function StatisticsBuildingBody({ gameState, xy }: IBuildingComponentProp
       content = <EmpireTab gameState={gameState} xy={xy} />;
    }
    return (
-      <div className="window-body column">
+      <div className={`window-body ${extraClass}`}>
          <menu role="tablist">
             <button onClick={() => setCurrentTab("empire")} aria-selected={currentTab === "empire"}>
                {t(L.StatisticsEmpire)}
@@ -105,7 +106,7 @@ function EmpireTab({ gameState, xy }: IBuildingComponentProps): React.ReactNode 
 
    const transportStat = getTransportStat(gameState);
    return (
-      <article role="tabpanel" className="f1 column" style={{ padding: "8px", overflow: "auto" }}>
+      <article role="tabpanel" className="f1 col" style={{ padding: "8px", overflow: "auto" }}>
          <fieldset>
             <legend>{t(L.TotalEmpireValue)}</legend>
             <ul className="tree-view">
@@ -289,43 +290,61 @@ function BuildingTab({ gameState }: IBuildingComponentProps): React.ReactNode {
    };
    const [search, setSearch] = useState<string>("");
    return (
-      <article role="tabpanel" className="f1" style={{ padding: "8px", overflow: "auto" }}>
-         <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-            <fieldset>
-               <legend>{t(L.StatisticsBuildingsFilters)}</legend>
-               <input
-                  type="text"
-                  style={{ width: "100%" }}
-                  placeholder={t(L.StatisticsBuildingsSearchText)}
-                  onChange={(e) => setSearch(e.target.value)}
-               />
-               <div className="row mt10">
-                  <Filter
-                     filter={buildingFilter}
-                     current={BuildingFilter.Wonder}
-                     savedFilter={savedBuildingFilter}
-                     onFilterChange={setBuildingFilter}
-                  >
-                     <div className="m-icon small">globe</div>
-                  </Filter>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((tier) => {
-                     return (
-                        <Filter
-                           key={tier}
-                           filter={buildingFilter}
-                           current={1 << tier}
-                           savedFilter={savedBuildingFilter}
-                           onFilterChange={setBuildingFilter}
-                        >
-                           {numberToRoman(tier)}
-                        </Filter>
-                     );
-                  })}
-               </div>
-            </fieldset>
-            <div className="table-view sticky-header" style={{ height: "100%", overflow: "auto" }}>
-               <table>
-                  <thead>
+      <article role="tabpanel" className="col" style={{ padding: "8px", flex: 1 }}>
+         <fieldset>
+            <legend>{t(L.StatisticsBuildingsFilters)}</legend>
+            <input
+               type="text"
+               style={{ width: "100%" }}
+               placeholder={t(L.StatisticsBuildingsSearchText)}
+               onChange={(e) => setSearch(e.target.value)}
+            />
+            <div className="row mt10">
+               <Filter
+                  filter={buildingFilter}
+                  current={BuildingFilter.Wonder}
+                  savedFilter={savedBuildingFilter}
+                  onFilterChange={setBuildingFilter}
+               >
+                  <div className="m-icon small">globe</div>
+               </Filter>
+               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((tier) => {
+                  return (
+                     <Filter
+                        key={tier}
+                        filter={buildingFilter}
+                        current={1 << tier}
+                        savedFilter={savedBuildingFilter}
+                        onFilterChange={setBuildingFilter}
+                     >
+                        {numberToRoman(tier)}
+                     </Filter>
+                  );
+               })}
+            </div>
+         </fieldset>
+         <div className="table-view" style={{ flex: 1 }}>
+            <TableVirtuoso
+               data={Array.from(getXyBuildings(gameState))
+                  .filter(([_, b]) => {
+                     // We should not show natural wonders in Stat Office. World wonder is fine
+                     if (Config.Building[b.type].special === BuildingSpecial.NaturalWonder) {
+                        return false;
+                     }
+                     let filter = (buildingFilter & 0x0fffffff) === 0;
+                     for (let i = 0; i < 12; i++) {
+                        if (hasFlag(buildingFilter, 1 << i)) {
+                           filter ||= Config.BuildingTier[b.type] === i;
+                        }
+                     }
+                     const s = search.toLowerCase();
+                     return filter && Config.Building[b.type].name().toLowerCase().includes(s);
+                  })
+                  .sort(([_a, a], [_b, b]) =>
+                     Config.Building[a.type].name().localeCompare(Config.Building[b.type].name()),
+                  )}
+               fixedHeaderContent={() => {
+                  return (
                      <tr>
                         <th></th>
                         <th></th>
@@ -345,97 +364,68 @@ function BuildingTab({ gameState }: IBuildingComponentProps): React.ReactNode {
                            </Tippy>
                         </th>
                      </tr>
-                  </thead>
-                  <tbody>
-                     {Array.from(gameState.tiles.entries())
-                        .flatMap(([xy, tile]) => {
-                           const building = tile.building;
-                           return tile.explored && building ? [{ building, xy }] : [];
-                        })
-                        .filter((v) => {
-                           let filter = (buildingFilter & 0x0fffffff) === 0;
-                           for (let i = 0; i < 12; i++) {
-                              if (hasFlag(buildingFilter, 1 << i)) {
-                                 filter ||= Config.BuildingTier[v.building.type] === i;
-                              }
-                           }
-                           const s = search.toLowerCase();
-                           return filter && Config.Building[v.building.type].name().toLowerCase().includes(s);
-                        })
-                        .sort((a, b) =>
-                           Config.Building[a.building.type]
-                              .name()
-                              .localeCompare(Config.Building[b.building.type].name()),
-                        )
-                        .map(({ building, xy }) => {
-                           // biome-ignore lint/correctness/useJsxKeyInIterable:
-                           let icon = <div className="m-icon small text-green">check_circle</div>;
-                           const notProducingReason = Tick.current.notProducingReasons.get(xy);
-                           if (building.status !== "completed") {
-                              icon = <div className="m-icon small text-orange">build_circle</div>;
-                           } else if (notProducingReason) {
-                              if (notProducingReason === NotProducingReason.StorageFull) {
-                                 icon = <div className="m-icon small text-red">stroke_full</div>;
-                              } else {
-                                 icon = <div className="m-icon small text-red">error</div>;
-                              }
-                           }
-                           return (
-                              <tr key={xy}>
-                                 <td>
-                                    {icon}
-                                    {getElectrificationStatus(xy, gameState) === "Active" ? (
-                                       <div className="m-icon small text-orange">bolt</div>
-                                    ) : null}
-                                 </td>
-                                 <td>
-                                    <div
-                                       className="pointer"
-                                       onClick={() => {
-                                          Singleton()
-                                             .sceneManager.getCurrent(WorldScene)
-                                             ?.lookAtTile(xy, LookAtMode.Highlight);
-                                       }}
-                                    >
-                                       {Config.Building[building.type].name()}
-                                    </div>
-                                    <div className="text-small text-desc">
-                                       {t(L.LevelX, { level: building.level })}
-                                    </div>
-                                 </td>
-                                 <td className="text-small right">
-                                    <div>
-                                       <FormatNumber value={Tick.current.buildingValueByTile.get(xy) ?? 0} />
-                                    </div>
-                                    <div>
-                                       <FormatNumber value={Tick.current.resourceValueByTile.get(xy) ?? 0} />
-                                    </div>
-                                 </td>
-                                 <td className="right">
-                                    <FormatNumber
-                                       value={
-                                          gameState.transportation
-                                             .get(xy)
-                                             ?.reduce((prev, curr) => prev + curr.currentFuelAmount, 0) ?? 0
-                                       }
-                                    />
-                                 </td>
-                                 <td
-                                    className={classNames({
-                                       "text-red":
-                                          Tick.current.notProducingReasons.get(xy) ===
-                                          NotProducingReason.NotEnoughWorkers,
-                                       "text-right": true,
-                                    })}
-                                 >
-                                    <FormatNumber value={Tick.current.workersAssignment.get(xy) ?? 0} />
-                                 </td>
-                              </tr>
-                           );
-                        })}
-                  </tbody>
-               </table>
-            </div>
+                  );
+               }}
+               itemContent={(index, [xy, building]) => {
+                  let icon = <div className="m-icon small text-green">check_circle</div>;
+                  const notProducingReason = Tick.current.notProducingReasons.get(xy);
+                  if (building.status !== "completed") {
+                     icon = <div className="m-icon small text-orange">build_circle</div>;
+                  } else if (notProducingReason) {
+                     if (notProducingReason === NotProducingReason.StorageFull) {
+                        icon = <div className="m-icon small text-red">stroke_full</div>;
+                     } else {
+                        icon = <div className="m-icon small text-red">error</div>;
+                     }
+                  }
+                  return (
+                     <>
+                        <td>
+                           {icon}
+                           {getElectrificationStatus(xy, gameState) === "Active" ? (
+                              <div className="m-icon small text-orange">bolt</div>
+                           ) : null}
+                        </td>
+                        <td>
+                           <div
+                              className="pointer"
+                              onClick={() => {
+                                 Singleton()
+                                    .sceneManager.getCurrent(WorldScene)
+                                    ?.lookAtTile(xy, LookAtMode.Highlight);
+                              }}
+                           >
+                              {Config.Building[building.type].name()}
+                           </div>
+                           <div className="text-small text-desc">
+                              {t(L.LevelX, { level: building.level })}
+                           </div>
+                        </td>
+                        <td className="text-small right">
+                           <div>
+                              <FormatNumber value={Tick.current.buildingValueByTile.get(xy) ?? 0} />
+                           </div>
+                           <div>
+                              <FormatNumber value={Tick.current.resourceValueByTile.get(xy) ?? 0} />
+                           </div>
+                        </td>
+                        <td className="right">
+                           <FormatNumber value={getFuelByTarget().get(xy) ?? 0} />
+                        </td>
+                        <td
+                           className={classNames({
+                              "text-red":
+                                 Tick.current.notProducingReasons.get(xy) ===
+                                 NotProducingReason.NotEnoughWorkers,
+                              "text-right": true,
+                           })}
+                        >
+                           <FormatNumber value={Tick.current.workersAssignment.get(xy) ?? 0} />
+                        </td>
+                     </>
+                  );
+               }}
+            />
          </div>
       </article>
    );
@@ -453,20 +443,9 @@ function ResourcesTab({ gameState }: IBuildingComponentProps): React.ReactNode {
    const [search, setSearch] = useState<string>("");
    const [showTheoreticalValue, setShowTheoreticalValue] = useState(true);
    const unlockedResourcesList: PartialSet<Resource> = unlockedResources(gameState);
-   const resourceAmounts: Partial<Record<keyof ResourceDefinitions, number>> = {};
    const io = getResourceIO(gameState);
    const inputs = showTheoreticalValue ? io.theoreticalInput : io.actualInput;
    const outputs = showTheoreticalValue ? io.theoreticalOutput : io.actualOutput;
-
-   keysOf(unlockedResourcesList).map((res) => {
-      resourceAmounts[res] =
-         Tick.current.resourcesByTile
-            .get(res)
-            ?.reduce(
-               (prev, curr) => prev + (gameState.tiles.get(curr.tile)?.building?.resources?.[res] ?? 0),
-               0,
-            ) ?? 0;
-   });
 
    const highlightResourcesUsed = (
       res: Resource,
@@ -491,7 +470,7 @@ function ResourcesTab({ gameState }: IBuildingComponentProps): React.ReactNode {
    };
 
    return (
-      <article role="tabpanel" className="f1 column" style={{ padding: "8px", overflow: "auto" }}>
+      <article role="tabpanel" className="f1 col" style={{ padding: "8px", overflow: "auto" }}>
          <fieldset>
             <div className="row">
                <div className="f1">{t(L.ShowTheoreticalValue)}</div>
@@ -561,7 +540,9 @@ function ResourcesTab({ gameState }: IBuildingComponentProps): React.ReactNode {
             compareFunc={(a, b, i) => {
                switch (i) {
                   case 1:
-                     return (resourceAmounts[a] ?? 0) - (resourceAmounts[b] ?? 0);
+                     return (
+                        (Tick.current.resourceAmount.get(a) ?? 0) - (Tick.current.resourceAmount.get(b) ?? 0)
+                     );
                   case 2:
                      return (
                         (outputs.get(a) ?? 0) -
@@ -572,9 +553,13 @@ function ResourcesTab({ gameState }: IBuildingComponentProps): React.ReactNode {
                      const deficitA = (outputs.get(a) ?? 0) - (inputs.get(a) ?? 0);
                      const deficitB = (outputs.get(b) ?? 0) - (inputs.get(b) ?? 0);
                      const timeLeftA =
-                        deficitA < 0 ? (resourceAmounts[a] ?? 0) / deficitA : Number.NEGATIVE_INFINITY;
+                        deficitA < 0
+                           ? (Tick.current.resourceAmount.get(a) ?? 0) / deficitA
+                           : Number.NEGATIVE_INFINITY;
                      const timeLeftB =
-                        deficitB < 0 ? (resourceAmounts[b] ?? 0) / deficitB : Number.NEGATIVE_INFINITY;
+                        deficitB < 0
+                           ? (Tick.current.resourceAmount.get(b) ?? 0) / deficitB
+                           : Number.NEGATIVE_INFINITY;
                      return timeLeftA !== timeLeftB
                         ? timeLeftB - timeLeftA
                         : Config.Resource[a].name().localeCompare(Config.Resource[b].name());
@@ -592,13 +577,20 @@ function ResourcesTab({ gameState }: IBuildingComponentProps): React.ReactNode {
                const output = outputs.get(res) ?? 0;
                const input = inputs.get(res) ?? 0;
                const deficit = output - input;
-               const amount = resourceAmounts[res] ?? 0;
+               const amount = Tick.current.resourceAmount.get(res) ?? 0;
                const timeLeft =
                   deficit < 0 ? Math.abs((1000 * amount ?? 0) / deficit) : Number.POSITIVE_INFINITY;
 
                return (
                   <tr key={res}>
-                     <td>{r.name()}</td>
+                     <td>
+                        <div>{r.name()}</div>
+                        <Tippy content={t(L.EmpireValue)}>
+                           <span className="text-desc text-small">
+                              <FormatNumber value={Config.ResourcePrice[res]} />
+                           </span>
+                        </Tippy>
+                     </td>
                      <td className="right">
                         <FormatNumber value={amount} />
                      </td>

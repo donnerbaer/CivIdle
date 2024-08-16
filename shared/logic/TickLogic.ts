@@ -8,13 +8,19 @@ import { getBuildingValue } from "./BuildingLogic";
 import { Config } from "./Config";
 import type { GameState } from "./GameState";
 import type { calculateHappiness } from "./HappinessLogic";
-import type { IBuildingData, ITileData } from "./Tile";
+import type { IBuildingData, IResourceImportBuildingData, ITileData } from "./Tile";
+import type { TileAndRes } from "./Update";
 
-export interface IBuildingResource {
+export interface IBuildingIndex {
    tile: Tile;
    amount: number;
-   totalStorage: number;
-   usedStorage: number;
+   usedStoragePercentage: number;
+}
+
+export interface IResourceImportBuildingIndex {
+   tile: Tile;
+   building: IResourceImportBuildingData;
+   usedStoragePercentage: number;
 }
 
 interface ITickData {
@@ -26,10 +32,11 @@ interface ITickData {
    workersUsed: Map<Resource, number>;
    workersAssignment: Map<Tile, number>;
    electrified: Set<Tile>;
-   resourcesByTile: Map<Resource, IBuildingResource[]>;
+   resourcesByTile: Map<Resource, IBuildingIndex[]>;
    storagePercentages: Map<Tile, number>;
    wonderProductions: Map<Resource, number>;
    playerTradeBuildings: Map<Tile, IBuildingData>;
+   resourceImportBuildings: Map<Tile, IResourceImportBuildingIndex>;
    globalMultipliers: GlobalMultipliers;
    notProducingReasons: Map<Tile, NotProducingReason>;
    specialBuildings: Map<Building, Required<ITileData>>;
@@ -39,10 +46,12 @@ interface ITickData {
    powerBuildings: Set<Tile>;
    happinessExemptions: Set<Tile>;
    totalValue: number;
+   resourceAmount: Map<Resource, number>;
    resourceValues: Map<Resource, number>;
    buildingValues: Map<Building, number>;
    buildingValueByTile: Map<Tile, number>;
    resourceValueByTile: Map<Tile, number>;
+   amountInTransit: Map<TileAndRes, number>;
    tick: number;
 }
 
@@ -61,6 +70,7 @@ export function EmptyTickData(): ITickData {
       globalMultipliers: new GlobalMultipliers(),
       notProducingReasons: new Map(),
       playerTradeBuildings: new Map(),
+      resourceImportBuildings: new Map(),
       wonderProductions: new Map(),
       specialBuildings: new Map(),
       scienceProduced: new Map(),
@@ -69,10 +79,12 @@ export function EmptyTickData(): ITickData {
       powerBuildings: new Set(),
       happinessExemptions: new Set(),
       totalValue: 0,
+      resourceAmount: new Map(),
       resourceValues: new Map(),
       buildingValues: new Map(),
       buildingValueByTile: new Map(),
       resourceValueByTile: new Map(),
+      amountInTransit: new Map(),
       tick: 0,
    };
 }
@@ -139,6 +151,7 @@ interface IMultiplier {
 }
 
 export type Multiplier = RequireAtLeastOne<IMultiplier>;
+export type MultiplierWithStability = Multiplier & { unstable?: boolean };
 export type MultiplierWithSource = Multiplier & { source: string; unstable?: boolean };
 
 export const AllMultiplierTypes = ["input", "output", "worker", "storage"] satisfies (keyof IMultiplier)[];

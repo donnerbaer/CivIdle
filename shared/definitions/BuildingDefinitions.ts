@@ -345,6 +345,12 @@ export class BuildingDefinitions {
       output: { Poem: 1 },
       construction: { Brick: 2 },
    };
+   PoetrySchool: IBuildingDefinition = {
+      name: () => t(L.PoetrySchool),
+      input: { Paper: 2, Alcohol: 1 },
+      output: { Poem: 2 },
+      construction: { Brick: 1, Lumber: 1 },
+   };
    PaintersGuild: IBuildingDefinition = {
       name: () => t(L.PaintersGuild),
       input: { Paper: 2 },
@@ -419,6 +425,12 @@ export class BuildingDefinitions {
       name: () => t(L.ResearchFund),
       input: { Banknote: 1, Bond: 1 },
       output: { Science: 25940 },
+   };
+   ComputerLab: IBuildingDefinition = {
+      name: () => t(L.ComputerLab),
+      input: { Computer: 1 },
+      output: { Science: 79930 },
+      power: true,
    };
    Museum: IBuildingDefinition = {
       name: () => t(L.Museum),
@@ -541,6 +553,24 @@ export class BuildingDefinitions {
       output: { Meat: 1, Milk: 1 },
       construction: { Lumber: 1 },
    };
+   PoultryFarm: IBuildingDefinition = {
+      name: () => t(L.PoultryFarm),
+      input: { Wheat: 2 },
+      output: { Meat: 2 },
+      construction: { Lumber: 1 },
+   };
+   DairyFarm: IBuildingDefinition = {
+      name: () => t(L.DairyFarm),
+      input: { Wheat: 2 },
+      output: { Milk: 2 },
+      construction: { Brick: 1 },
+   };
+   // LivestockFarm: IBuildingDefinition = {
+   //    name: () => t(L.LivestockFarm),
+   //    input: { Wheat: 2 },
+   //    output: { Meat: 1, Milk: 1 },
+   //    construction: { Lumber: 1 },
+   // };
    Stable: IBuildingDefinition = {
       name: () => t(L.Stable),
       input: { Wheat: 2 },
@@ -766,6 +796,7 @@ export class BuildingDefinitions {
       name: () => t(L.BitcoinMiner),
       input: { HedgeFund: 2, CivTok: 1 },
       output: { Bitcoin: 1 },
+      power: true,
    };
    Caravansary: IBuildingDefinition = {
       name: () => t(L.Caravansary),
@@ -793,7 +824,16 @@ export class BuildingDefinitions {
       input: {},
       output: {},
       desc: () => t(L.CloneFactoryDesc),
-      construction: { Concrete: 10 },
+      construction: { Software: 5, Tank: 5 },
+      power: true,
+   };
+   CloneLab: IBuildingDefinition = {
+      name: () => t(L.CloneLab),
+      input: {},
+      output: {},
+      desc: () => t(L.CloneLabDesc),
+      construction: { Rocket: 5, Computer: 5 },
+      power: true,
    };
    // #endregion /////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -811,7 +851,7 @@ export class BuildingDefinitions {
       desc: () => t(L.StatisticsOfficeDesc),
       input: {},
       output: {},
-      construction: { Brick: 100, Wood: 100, Lumber: 100 },
+      construction: { Stone: 150, Wood: 150 },
       max: 1,
       special: BuildingSpecial.WorldWonder,
    };
@@ -1542,7 +1582,7 @@ export class BuildingDefinitions {
 
    ZigguratOfUr: IBuildingDefinition = {
       name: () => t(L.ZigguratOfUr),
-      desc: () => t(L.ZigguratOfUrDesc),
+      desc: () => t(L.ZigguratOfUrDescV2),
       input: {},
       output: {},
       construction: { Brick: 100, Lumber: 100, Sand: 100 },
@@ -1573,6 +1613,149 @@ export class BuildingDefinitions {
       wikipedia: "Zagros_Mountains",
    };
 
+   InternationalSpaceStation: IBuildingDefinition = {
+      name: () => t(L.InternationalSpaceStation),
+      desc: () => t(L.InternationalSpaceStationDesc),
+      input: {},
+      output: {},
+      construction: { Spacecraft: 100, AircraftCarrier: 100, NuclearSubmarine: 100 },
+      max: 1,
+      special: BuildingSpecial.WorldWonder,
+      wikipedia: "International_Space_Station",
+   };
+
+   MarinaBaySands: IBuildingDefinition = {
+      name: () => t(L.MarinaBaySands),
+      desc: () => t(L.MarinaBaySandsDesc),
+      input: {},
+      output: {},
+      construction: { TV: 100, CivTok: 100, MutualFund: 100 },
+      max: 1,
+      special: BuildingSpecial.WorldWonder,
+      wikipedia: "Marina_Bay_Sands",
+   };
+
+   PalmJumeirah: IBuildingDefinition = {
+      name: () => t(L.PalmJumeirah),
+      desc: () => t(L.PalmJumeirahDesc),
+      input: {},
+      output: {},
+      construction: { HedgeFund: 100, Bitcoin: 100, Supercomputer: 100 },
+      max: 1,
+      special: BuildingSpecial.WorldWonder,
+      wikipedia: "Palm_Jumeirah",
+   };
+
+   AldersonDisk: IBuildingDefinition = {
+      name: () => t(L.AldersonDisk),
+      desc: () => t(L.AldersonDiskDesc),
+      input: {},
+      output: {},
+      construction: { CivOasis: 100, Robocar: 100, Bitcoin: 100 },
+      max: 1,
+      special: BuildingSpecial.WorldWonder,
+      wikipedia: "Alderson_disk",
+   };
+
+   DysonSphere: IBuildingDefinition = {
+      name: () => t(L.DysonSphere),
+      desc: () => t(L.DysonSphereDesc),
+      input: {},
+      output: {},
+      construction: { CivGPT: 100, Peace: 100, PlanetaryRover: 100 },
+      max: 1,
+      special: BuildingSpecial.WorldWonder,
+      wikipedia: "Dyson_sphere",
+   };
+
+   MatrioshkaBrain: IBuildingDefinition = {
+      name: () => t(L.MatrioshkaBrain),
+      desc: () => t(L.MatrioshkaBrainDescV2),
+      input: {},
+      output: {},
+      construction: { CivOasis: 100, Peace: 100, CivGPT: 100 },
+      max: 1,
+      special: BuildingSpecial.WorldWonder,
+      wikipedia: "Matrioshka_brain",
+   };
+
+   LargeHadronCollider: IBuildingDefinition = {
+      name: () => t(L.LargeHadronCollider),
+      desc: () => t(L.LargeHadronColliderDescV2),
+      input: {},
+      output: {},
+      construction: { Supercomputer: 100, CivTok: 100, HedgeFund: 100 },
+      max: 1,
+      special: BuildingSpecial.WorldWonder,
+      wikipedia: "Large_Hadron_Collider",
+   };
+
+   BigBen: IBuildingDefinition = {
+      name: () => t(L.BigBen),
+      desc: () => t(L.BigBenDesc),
+      input: {},
+      output: {},
+      max: 1,
+      special: BuildingSpecial.WorldWonder,
+      construction: { Politics: 300 },
+      wikipedia: "Big_Ben",
+   };
+
+   ItsukushimaShrine: IBuildingDefinition = {
+      name: () => t(L.ItsukushimaShrine),
+      desc: () => t(L.ItsukushimaShrineDescV2),
+      input: {},
+      output: {},
+      construction: { Furniture: 100, Opera: 100, SiegeRam: 100 },
+      max: 1,
+      special: BuildingSpecial.WorldWonder,
+      wikipedia: "Itsukushima_Shrine",
+   };
+
+   GoldenPavilion: IBuildingDefinition = {
+      name: () => t(L.GoldenPavilion),
+      desc: () => t(L.GoldenPavilionDesc),
+      input: {},
+      output: {},
+      construction: { Faith: 100, Coin: 100, Sword: 100 },
+      max: 1,
+      special: BuildingSpecial.WorldWonder,
+      wikipedia: "Kinkaku-ji",
+   };
+
+   OsakaCastle: IBuildingDefinition = {
+      name: () => t(L.OsakaCastle),
+      desc: () => t(L.OsakaCastleDesc),
+      input: {},
+      output: {},
+      construction: { Train: 100, GatlingGun: 100, Politics: 100 },
+      max: 1,
+      special: BuildingSpecial.WorldWonder,
+      wikipedia: "Osaka_Castle",
+   };
+
+   Kanagawa: IBuildingDefinition = {
+      name: () => t(L.Kanagawa),
+      desc: () => t(L.KanagawaDesc),
+      input: {},
+      output: {},
+      construction: {},
+      max: 0,
+      special: BuildingSpecial.NaturalWonder,
+      wikipedia: "The_Great_Wave_off_Kanagawa",
+   };
+
+   MountFuji: IBuildingDefinition = {
+      name: () => t(L.MountFuji),
+      desc: () => t(L.MountFujiDescV2),
+      input: {},
+      output: {},
+      construction: {},
+      max: 0,
+      special: BuildingSpecial.NaturalWonder,
+      wikipedia: "Mount_Fuji",
+   };
+
    // ArcDeTriomphe: IBuildingDefinition = {
    //    name: () => t(L.ArcDeTriomphe),
    //    desc: () => t(L.ArcDeTriompheDesc),
@@ -1601,15 +1784,6 @@ export class BuildingDefinitions {
    //    wikipedia: "Borobudur",
    // };
 
-   // ItsukushimaShrine: IBuildingDefinition = {
-   //    name: () => t(L.ItsukushimaShrine),
-   //    desc: () => t(L.ItsukushimaShrineDesc),
-   //    input: {},
-   //    output: {},
-   //    max: 1,
-   //    wikipedia: "Itsukushima_Shrine",
-   // };
-
    // Moai: IBuildingDefinition = {
    //    name: () => t(L.Moai),
    //    desc: () => t(L.MoaiDesc),
@@ -1626,15 +1800,6 @@ export class BuildingDefinitions {
    //    output: {},
    //    max: 1,
    //    wikipedia: "Bran_Castle",
-   // };
-
-   // ChoghaZanbil: IBuildingDefinition = {
-   //    name: () => t(L.ChoghaZanbil),
-   //    desc: () => t(L.ChoghaZanbilDesc),
-   //    input: {},
-   //    output: {},
-   //    max: 1,
-   //    wikipedia: "Chogha_Zanbil",
    // };
 
    // SydneyOperaHouse: IBuildingDefinition = {

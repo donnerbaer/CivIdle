@@ -14,7 +14,6 @@ import {
    mReduceOf,
    mapOf,
    mapSafeAdd,
-   mapSafePush,
    pointToTile,
    reduceOf,
    safeAdd,
@@ -32,7 +31,13 @@ import { MANAGED_IMPORT_RANGE } from "./Constants";
 import { GameFeature, hasFeature } from "./FeatureLogic";
 import type { GameOptions, GameState } from "./GameState";
 import { getGameState } from "./GameStateLogic";
-import { getBuildingIO, getBuildingsByType, getGrid, getXyBuildings } from "./IntraTickCache";
+import {
+   getBuildingIO,
+   getBuildingsByType,
+   getGlobalMultipliers,
+   getGrid,
+   getXyBuildings,
+} from "./IntraTickCache";
 import { getGreatPersonTotalEffect, getUpgradeCostFib } from "./RebirthLogic";
 import { getBuildingsThatProduce, getResourcesValue } from "./ResourceLogic";
 import { getAgeForTech, getBuildingUnlockTech } from "./TechLogic";
@@ -57,7 +62,6 @@ import {
    type IMarketBuildingData,
    type IResourceImportBuildingData,
    type ITileData,
-   type IWarehouseBuildingData,
 } from "./Tile";
 
 export function totalMultiplierFor(
@@ -97,9 +101,9 @@ export function forEachMultiplier(
       });
    }
    AllMultiplierTypes.forEach((type) => {
-      Tick.current.globalMultipliers[type].forEach((m) => {
+      getGlobalMultipliers(type).forEach((m) => {
          if (stableOnly && m.unstable) return;
-         func({ [type]: m.value, source: m.source, unstable: m.unstable } as MultiplierWithSource);
+         func(m);
       });
    });
 }
@@ -238,6 +242,10 @@ export function getStorageFor(xy: Tile, gs: GameState): IStorageResult {
          const HOUR = 60 * 60;
          base = 3 * HOUR + getPetraBaseStorage(building);
          base += HOUR * Config.GreatPerson.Zenobia.value(getGreatPersonTotalEffect("Zenobia"));
+         const fuji = Tick.current.specialBuildings.get("MountFuji");
+         if (fuji && getGrid(gs).distanceTile(fuji.tile, xy) <= 1) {
+            base += HOUR * 8;
+         }
          multiplier = 1;
          break;
       }
@@ -351,29 +359,28 @@ export function addTransportation(
    resource: Resource,
    amount: number,
    fuelResource: Resource,
-   fuelAmount: number,
+   fuelPerTick: number,
    fromXy: Tile,
    toXy: Tile,
    gs: GameState,
 ): void {
-   const fromGrid = tileToPoint(fromXy);
-   const fromPosition = getGrid(gs).gridToPosition(fromGrid);
-   const toGrid = tileToPoint(toXy);
-   const toPosition = getGrid(gs).gridToPosition(toGrid);
-   useWorkers(fuelResource, fuelAmount, null);
-   mapSafePush(gs.transportation, toXy, {
+   const grid = getGrid(gs);
+   const fromPosition = grid.xyToPosition(fromXy);
+   const toPosition = grid.xyToPosition(toXy);
+   useWorkers(fuelResource, fuelPerTick, null);
+   gs.transportationV2.push({
       id: ++gs.transportId,
       fromXy,
-      toXy,
       fromPosition,
+      toXy,
       toPosition,
-      ticksRequired: getGrid(gs).distance(fromGrid.x, fromGrid.y, toGrid.x, toGrid.y),
       ticksSpent: 0,
+      ticksRequired: grid.distanceTile(fromXy, toXy),
       resource,
       amount,
       fuel: "Worker",
-      fuelAmount,
-      currentFuelAmount: fuelAmount,
+      fuelPerTick,
+      fuelCurrentTick: fuelPerTick,
       hasEnoughFuel: true,
    });
 }
@@ -408,7 +415,7 @@ export function getScienceFromWorkers(gs: GameState) {
 
 export function getScienceFromBuildings() {
    return mReduceOf(
-      Tick.next.scienceProduced,
+      Tick.current.scienceProduced,
       (prev, _, value) => {
          return prev + value;
       },
@@ -451,7 +458,7 @@ export function getBuildingCost(
       }
       keysOf(cost).forEach((res) => {
          const price = Config.ResourcePrice[res] ?? 1;
-         cost[res] = (multiplier * cost[res]!) / price;
+         cost[res] = (Math.pow(1.5, building.level) * multiplier * cost[res]!) / price;
       });
    } else {
       const multiplier = 10;
@@ -607,6 +614,17 @@ export function getBuildingPercentage(xy: Tile, gs: GameState): BuildingPercenta
 }
 
 export function getBuildingLevelLabel(b: IBuildingData): string {
+   if (
+      b.type === "InternationalSpaceStation" ||
+      b.type === "MarinaBaySands" ||
+      b.type === "PalmJumeirah" ||
+      b.type === "AldersonDisk" ||
+      b.type === "DysonSphere" ||
+      b.type === "MatrioshkaBrain" ||
+      b.type === "LargeHadronCollider"
+   ) {
+      return String(b.level);
+   }
    if (Config.Building[b.type].special === BuildingSpecial.HQ || isWorldOrNaturalWonder(b.type)) {
       return "";
    }
@@ -658,10 +676,12 @@ export function getResourceImportCapacity(building: IHaveTypeAndLevel, multiplie
    return multiplier * building.level * 10;
 }
 
-export function getWarehouseIdleCapacity(xy: Tile, gs: GameState): number {
+export function getResourceImportIdleCapacity(xy: Tile, gs: GameState): number {
    const building = gs.tiles.get(xy)?.building;
-   if (building?.type !== "Warehouse") return 0;
-   const warehouse = building as IWarehouseBuildingData;
+   if (!building || !("resourceImports" in building)) {
+      return 0;
+   }
+   const warehouse = building as IResourceImportBuildingData;
    return (
       getResourceImportCapacity(warehouse, totalMultiplierFor(xy, "output", 1, false, gs)) -
       reduceOf(
@@ -685,7 +705,7 @@ export function getBuilderCapacity(
    let baseCapacity = clamp(building.level, 1, Number.POSITIVE_INFINITY);
 
    if (isWorldWonder(building.type)) {
-      baseCapacity = getWonderBaseBuilderCapacity(building.type);
+      baseCapacity *= getWonderBaseBuilderCapacity(building.type);
    }
 
    return { multiplier: builder, base: baseCapacity, total: builder * baseCapacity };
@@ -748,13 +768,13 @@ export function getAvailableResource(sourceXy: Tile, destXy: Tile, res: Resource
       return 0;
    }
 
-   if (!building.resources[res]) {
+   const amountInStorage = building.resources[res];
+   if (!amountInStorage) {
       return 0;
    }
 
    if ("resourceImports" in building) {
       const ri = building as IResourceImportBuildingData;
-
       if (
          building.type === getXyBuildings(gs).get(destXy)?.type &&
          !hasFlag(ri.resourceImportOptions, ResourceImportOptions.ExportToSameType)
@@ -763,26 +783,21 @@ export function getAvailableResource(sourceXy: Tile, destXy: Tile, res: Resource
       }
       const resourceImport = ri.resourceImports[res];
       if (resourceImport && !hasFlag(ri.resourceImportOptions, ResourceImportOptions.ExportBelowCap)) {
-         return clamp(
-            (building.resources[res] ?? 0) - (resourceImport.cap ?? 0),
-            0,
-            Number.POSITIVE_INFINITY,
-         );
+         return clamp(amountInStorage - (resourceImport.cap ?? 0), 0, Number.POSITIVE_INFINITY);
       }
 
-      return building.resources[res] ?? 0;
+      return amountInStorage;
    }
 
    const input = getBuildingIO(sourceXy, "input", IOCalculation.Capacity | IOCalculation.Multiplier, gs);
-   if (input[res]) {
-      return clamp(
-         building.resources[res]! -
-            (getStockpileMax(building) + getStockpileCapacity(building)) * input[res]!,
-         0,
-         Number.POSITIVE_INFINITY,
-      );
+   const inputAmount = input[res];
+   if (inputAmount) {
+      // We reserve stockpile max + 1 cycle of capacity so that production does not flicker
+      const reservedAmount = (getStockpileMax(building) + getStockpileCapacity(building)) * inputAmount;
+      return clamp(amountInStorage - reservedAmount, 0, Number.POSITIVE_INFINITY);
    }
-   return building.resources[res]!;
+
+   return amountInStorage;
 }
 
 export function exploreTile(xy: Tile, gs: GameState): void {
@@ -812,12 +827,21 @@ export function canBeElectrified(b: Building): boolean {
    if (isSpecialBuilding(b)) {
       return false;
    }
+   if (b === "CloneFactory") {
+      return true;
+   }
+   if (b === "CloneLab" && Tick.current.specialBuildings.has("OsakaCastle")) {
+      return true;
+   }
    const output = Config.Building[b].output;
    if (sizeOf(output) <= 0) {
       return false;
    }
    let res: Resource;
    for (res in output) {
+      if (res === "Science" && Tick.current.specialBuildings.has("OsakaCastle")) {
+         continue;
+      }
       if (NoStorage[res]) {
          return false;
       }
@@ -1065,7 +1089,7 @@ export function generateScienceFromFaith(xy: number, buildingType: Building, gs:
    if (hq) {
       let total = 0;
       getBuildingsByType(buildingType, gs)?.forEach((tile, xy) => {
-         if (tile.building.status === "completed" && !Tick.current.notProducingReasons.has(xy)) {
+         if (tile.building?.status === "completed" && !Tick.current.notProducingReasons.has(xy)) {
             const output = getBuildingIO(xy, "output", IOCalculation.Capacity | IOCalculation.Multiplier, gs);
             total += output.Faith ?? 0;
          }
@@ -1075,4 +1099,17 @@ export function generateScienceFromFaith(xy: number, buildingType: Building, gs:
       mapSafeAdd(Tick.next.wonderProductions, "Science", total);
       Tick.next.scienceProduced.set(xy, total);
    }
+}
+
+export function getExplorerRange(gs: GameState): number {
+   if (gs.unlockedTech.Aviation) {
+      return 4;
+   }
+   if (gs.unlockedTech.SteamEngine) {
+      return 3;
+   }
+   if (gs.unlockedTech.Geography) {
+      return 2;
+   }
+   return 1;
 }

@@ -1,4 +1,5 @@
 import { assert, test } from "vitest";
+import type { TechAge } from "../shared/definitions/TechDefinitions";
 import {
    getBuildingCost,
    getPowerRequired,
@@ -7,7 +8,7 @@ import {
 } from "../shared/logic/BuildingLogic";
 import { Config } from "../shared/logic/Config";
 import { calculateTierAndPrice } from "../shared/logic/Constants";
-import { GameOptions, SavedGame } from "../shared/logic/GameState";
+import { GameOptions, GameState, SavedGame } from "../shared/logic/GameState";
 import { deserializeSave, serializeSave } from "../shared/logic/GameStateLogic";
 import { initializeGameState } from "../shared/logic/InitializeGameState";
 import {
@@ -22,10 +23,18 @@ import {
    getAvailableStorage,
    getResourcesValue,
 } from "../shared/logic/ResourceLogic";
-import { getAllPrerequisites, isPrerequisiteOf } from "../shared/logic/TechLogic";
+import {
+   getAllPrerequisites,
+   getBuildingUnlockAge,
+   getBuildingsUnlockedBefore,
+   getNextAge,
+   getTechUnlockCostInAge,
+   isAllTechUnlocked,
+   isPrerequisiteOf,
+} from "../shared/logic/TechLogic";
 import { makeBuilding } from "../shared/logic/Tile";
 import { fossilDeltaApply, fossilDeltaCreate } from "../shared/thirdparty/FossilDelta";
-import { pointToTile } from "../shared/utilities/Helper";
+import { forEach, pointToTile } from "../shared/utilities/Helper";
 
 test("getBuildingCost", (t) => {
    assert.equal(10, getBuildingCost({ type: "CoalMine", level: 0 }).Brick);
@@ -304,4 +313,40 @@ test("getTotalGreatPeopleUpgradeCost", () => {
    assert.equal(1 + 2 + 4 + 8, getTotalGreatPeopleUpgradeCost("AdaLovelace", 4));
    assert.equal(1 + 2 + 3, getTotalGreatPeopleUpgradeCost("Fibonacci", 3));
    assert.equal(1 + 2 + 3 + 5, getTotalGreatPeopleUpgradeCost("Fibonacci", 4));
+});
+
+test("isAllTechUnlocked", () => {
+   const gs = new GameState();
+   assert.isFalse(isAllTechUnlocked("StoneAge", gs));
+   gs.unlockedTech.Fire = true;
+   gs.unlockedTech.StoneTools = true;
+   gs.unlockedTech.Logging = true;
+   gs.unlockedTech.Shelter = true;
+   gs.unlockedTech.Masonry = true;
+   gs.unlockedTech.Counting = true;
+   assert.isFalse(isAllTechUnlocked("StoneAge", gs));
+   gs.unlockedTech.Farming = true;
+   assert.isTrue(isAllTechUnlocked("StoneAge", gs));
+});
+
+test("getNextAge", () => {
+   assert.equal("InformationAge" as TechAge, getNextAge("ColdWarAge"));
+   assert.equal(null, getNextAge("InformationAge"));
+});
+
+test("getTechUnlockCostInAge", () => {
+   forEach(Config.TechAge, (age, def) => {
+      const [min, max] = getTechUnlockCostInAge(age);
+      assert.isTrue(Number.isFinite(min), age);
+      assert.isTrue(Number.isFinite(max), age);
+      assert.isTrue(max > min, age);
+   });
+});
+
+test("getBuildingsUnlockedBefore", () => {
+   forEach(Config.TechAge, (age, def) => {
+      getBuildingsUnlockedBefore(age).forEach((b) => {
+         assert.isTrue(Config.TechAge[getBuildingUnlockAge(b)].idx < Config.TechAge[age].idx, b);
+      });
+   });
 });

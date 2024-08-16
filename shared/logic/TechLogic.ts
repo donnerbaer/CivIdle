@@ -7,6 +7,7 @@ import {
    forEach,
    isEmpty,
    isNullOrUndefined,
+   safeAdd,
    shuffle,
    sizeOf,
    type Tile,
@@ -17,6 +18,7 @@ import type { GameState } from "./GameState";
 import { RequestPathFinderGridUpdate, SEA_TILE_COSTS } from "./PlayerTradeLogic";
 import { Tick } from "./TickLogic";
 import { getDepositTileCount } from "./Tile";
+import { OnTechUnlocked } from "./Update";
 
 export function getTechUnlockCost(tech: Tech): number {
    const a = getAgeForTech(tech);
@@ -116,6 +118,28 @@ export function getAgeForTech(tech: Tech): TechAge {
    throw new Error(`Cannot find age for tech: ${tech}`);
 }
 
+export function getNextAge(age: TechAge): TechAge | null {
+   const idx = Config.TechAge[age].idx + 1;
+   for (age in Config.TechAge) {
+      if (Config.TechAge[age].idx === idx) {
+         return age;
+      }
+   }
+   return null;
+}
+
+export function isAllTechUnlocked(age: TechAge, gs: GameState): boolean {
+   const from = Config.TechAge[age].from;
+   const to = Config.TechAge[age].to;
+   let tech: Tech;
+   for (tech in Config.Tech) {
+      if (Config.Tech[tech].column >= from && Config.Tech[tech].column <= to && !gs.unlockedTech[tech]) {
+         return false;
+      }
+   }
+   return true;
+}
+
 export function unlockTech(tech: Tech, dispatchEvent: boolean, gs: GameState): void {
    if (gs.unlockedTech[tech]) {
       return;
@@ -161,6 +185,7 @@ export function unlockTech(tech: Tech, dispatchEvent: boolean, gs: GameState): v
    if (tech in SEA_TILE_COSTS) {
       RequestPathFinderGridUpdate.emit();
    }
+   OnTechUnlocked.emit(tech);
 }
 
 export const RequestResetTile = new TypedEvent<Tile>();
@@ -202,5 +227,51 @@ export function getAllPrerequisites(tech: Tech): Set<Tech> {
          return Config.Tech[d].requireTech;
       });
    }
+   return result;
+}
+
+export function getTechUnlockCostInAge(age: TechAge): [number, number] {
+   let min = Number.POSITIVE_INFINITY;
+   let max = 0;
+   const from = Config.TechAge[age].from;
+   const to = Config.TechAge[age].to;
+   forEach(Config.Tech, (tech, def) => {
+      if (def.column >= from && def.column <= to) {
+         const cost = getTechUnlockCost(tech);
+         max = Math.max(cost, max);
+         min = Math.min(cost, min);
+      }
+   });
+   return [min, max];
+}
+
+export function checkItsukushimaShrine(tech: Tech, gs: GameState): void {
+   if (!Tick.current.specialBuildings.has("ItsukushimaShrine")) {
+      return;
+   }
+   const age = getAgeForTech(tech);
+   if (!isAllTechUnlocked(age, gs)) {
+      return;
+   }
+   const nextAge = getNextAge(age);
+   if (!nextAge) {
+      return;
+   }
+   const [science, _] = getTechUnlockCostInAge(nextAge);
+   const hq = Tick.current.specialBuildings.get("Headquarter");
+   if (hq) {
+      // console.log(`ItsukushimaShrine: +${science} Science`);
+      safeAdd(hq.building.resources, "Science", science);
+   }
+}
+
+export function getBuildingsUnlockedBefore(age: TechAge): Building[] {
+   const result: Building[] = [];
+   const idx = Config.TechAge[age].idx;
+   forEach(Config.BuildingTechAge, (building, a) => {
+      if (Config.TechAge[a].idx < idx) {
+         result.push(building);
+      }
+   });
    return result;
 }

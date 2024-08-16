@@ -6,11 +6,12 @@ import {
    getGreatPersonTotalEffect,
    rollGreatPeopleThisRun,
 } from "../logic/RebirthLogic";
-import { getTechUnlockCost } from "../logic/TechLogic";
-import { RequestChooseGreatPerson } from "../logic/Update";
-import { deepFreeze, pointToTile, safeAdd, tileToPoint } from "../utilities/Helper";
+import { getTechUnlockCost, getTechUnlockCostInAge } from "../logic/TechLogic";
+import { RequestChooseGreatPerson, addMultiplier } from "../logic/Update";
+import { deepFreeze, forEach, pointToTile, safeAdd, tileToPoint } from "../utilities/Helper";
 import { L, t } from "../utilities/i18n";
 import { BuildingDefinitions } from "./BuildingDefinitions";
+import { GreatPersonTickFlag } from "./GreatPersonDefinitions";
 import type { IUpgradeDefinition } from "./ITechDefinition";
 import type { Tech } from "./TechDefinitions";
 
@@ -149,7 +150,7 @@ export class UpgradeDefinitions {
          const total = getGreatPersonTotalEffect("ZhengHe", gs);
          if (total > 0) {
             const def = Config.GreatPerson.ZhengHe;
-            def.tick(def, total, t(L.ExpansionLevelX, { level: "IV" }));
+            def.tick(def, total, t(L.ExpansionLevelX, { level: "IV" }), GreatPersonTickFlag.None);
          }
       },
    };
@@ -392,6 +393,249 @@ export class UpgradeDefinitions {
          PrintingHouse: { output: 1 },
       },
       globalMultiplier: { sciencePerBusyWorker: 2 },
+   };
+
+   Liberalism1: IUpgradeDefinition = {
+      name: () => t(L.LiberalismLevelX, { level: "I" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         BondMarket: { output: 1 },
+      },
+   };
+
+   Liberalism2: IUpgradeDefinition = {
+      name: () => t(L.LiberalismLevelX, { level: "II" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         BondMarket: { output: 1 },
+         Warehouse: { storage: 1 },
+         Caravansary: { storage: 1 },
+      },
+   };
+
+   Liberalism3: IUpgradeDefinition = {
+      name: () => t(L.LiberalismLevelX, { level: "III" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         BondMarket: { output: 1 },
+         Warehouse: { storage: 1 },
+         Caravansary: { storage: 1 },
+      },
+      additionalUpgrades: () => [t(L.LiberalismLevel3DescHTML)],
+   };
+
+   Liberalism4: IUpgradeDefinition = {
+      name: () => t(L.LiberalismLevelX, { level: "IV" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         BondMarket: { output: 1 },
+         Warehouse: { storage: 1 },
+         Caravansary: { storage: 1 },
+      },
+      tick: () => {
+         forEach(Config.Building, (b, def) => {
+            if (def.output.Power) {
+               addMultiplier(b, { output: 1 }, t(L.LiberalismLevelX, { level: "IV" }));
+            }
+         });
+      },
+   };
+
+   Liberalism5: IUpgradeDefinition = {
+      name: () => t(L.LiberalismLevelX, { level: "V" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         BondMarket: { output: 1 },
+         StockExchange: { output: 1 },
+         Warehouse: { storage: 1 },
+         Caravansary: { storage: 1 },
+      },
+      additionalUpgrades: () => [t(L.LiberalismLevel5DescHTML)],
+   };
+
+   Conservatism1: IUpgradeDefinition = {
+      name: () => t(L.ConservatismLevelX, { level: "I" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         LocomotiveFactory: { output: 1 },
+      },
+   };
+
+   Conservatism2: IUpgradeDefinition = {
+      name: () => t(L.ConservatismLevelX, { level: "II" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         LocomotiveFactory: { output: 1 },
+      },
+      globalMultiplier: { happiness: 2 },
+   };
+
+   Conservatism3: IUpgradeDefinition = {
+      name: () => t(L.ConservatismLevelX, { level: "III" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         LocomotiveFactory: { output: 1 },
+         Stadium: { output: 1 },
+      },
+      globalMultiplier: { happiness: 3 },
+   };
+
+   Conservatism4: IUpgradeDefinition = {
+      name: () => t(L.ConservatismLevelX, { level: "IV" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         LocomotiveFactory: { output: 1 },
+         Stadium: { output: 1 },
+         MovieStudio: { output: 1 },
+      },
+      globalMultiplier: { happiness: 4 },
+   };
+
+   Conservatism5: IUpgradeDefinition = {
+      name: () => t(L.ConservatismLevelX, { level: "V" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         LocomotiveFactory: { output: 1 },
+         Stadium: { output: 1 },
+         MovieStudio: { output: 1 },
+         RadioStation: { output: 1 },
+      },
+      globalMultiplier: { happiness: 5 },
+   };
+
+   Socialism1: IUpgradeDefinition = {
+      name: () => t(L.SocialismLevelX, { level: "I" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         PublishingHouse: { output: 1 },
+      },
+   };
+
+   Socialism2: IUpgradeDefinition = {
+      name: () => t(L.SocialismLevelX, { level: "II" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         PublishingHouse: { output: 1 },
+         MagazinePublisher: { output: 1 },
+      },
+   };
+
+   Socialism3: IUpgradeDefinition = {
+      name: () => t(L.SocialismLevelX, { level: "III" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         PublishingHouse: { output: 1 },
+         MagazinePublisher: { output: 1 },
+         ResearchLab: { output: 1 },
+      },
+   };
+
+   Socialism4: IUpgradeDefinition = {
+      name: () => t(L.SocialismLevelX, { level: "IV" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         PublishingHouse: { output: 1 },
+         MagazinePublisher: { output: 1 },
+         ResearchLab: { output: 1 },
+      },
+      onUnlocked: (gs) => {
+         const [science, _] = getTechUnlockCostInAge("WorldWarAge");
+         const hq = findSpecialBuilding("Headquarter", gs);
+         if (hq) {
+            safeAdd(hq.building.resources, "Science", science);
+         }
+      },
+      additionalUpgrades: () => [t(L.SocialismLevel4DescHTMLV2)],
+   };
+
+   Socialism5: IUpgradeDefinition = {
+      name: () => t(L.SocialismLevelX, { level: "V" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         PublishingHouse: { output: 1 },
+         MagazinePublisher: { output: 1 },
+         ResearchLab: { output: 1 },
+      },
+      onUnlocked: (gs) => {
+         const [science, _] = getTechUnlockCostInAge("ColdWarAge");
+         const hq = findSpecialBuilding("Headquarter", gs);
+         if (hq) {
+            safeAdd(hq.building.resources, "Science", science);
+         }
+      },
+      additionalUpgrades: () => [t(L.SocialismLevel5DescHTMLV2)],
+   };
+
+   Communism1: IUpgradeDefinition = {
+      name: () => t(L.CommunismLevelX, { level: "I" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         GatlingGunFactory: { output: 1 },
+      },
+   };
+
+   Communism2: IUpgradeDefinition = {
+      name: () => t(L.CommunismLevelX, { level: "II" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         GatlingGunFactory: { output: 1 },
+      },
+      globalMultiplier: {
+         sciencePerBusyWorker: 1,
+      },
+   };
+
+   Communism3: IUpgradeDefinition = {
+      name: () => t(L.CommunismLevelX, { level: "III" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         GatlingGunFactory: { output: 1 },
+         IroncladBuilder: { output: 1 },
+      },
+      globalMultiplier: {
+         sciencePerBusyWorker: 1,
+      },
+   };
+
+   Communism4: IUpgradeDefinition = {
+      name: () => t(L.CommunismLevelX, { level: "IV" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         GatlingGunFactory: { output: 1 },
+         IroncladBuilder: { output: 1 },
+         BiplaneFactory: { output: 1 },
+      },
+      globalMultiplier: {
+         sciencePerBusyWorker: 1,
+      },
+      onUnlocked: (gs) => {
+         const candidates1 = rollGreatPeopleThisRun("IndustrialAge", gs.city, getGreatPeopleChoiceCount(gs));
+         if (candidates1) {
+            gs.greatPeopleChoices.push(candidates1);
+         }
+         const candidates2 = rollGreatPeopleThisRun("WorldWarAge", gs.city, getGreatPeopleChoiceCount(gs));
+         if (candidates2) {
+            gs.greatPeopleChoices.push(candidates2);
+         }
+      },
+      additionalUpgrades: () => [t(L.CommunismLevel4DescHTML)],
+   };
+
+   Communism5: IUpgradeDefinition = {
+      name: () => t(L.CommunismLevelX, { level: "V" }),
+      requireResources: { Politics: 1 },
+      buildingMultiplier: {
+         GatlingGunFactory: { output: 1 },
+         IroncladBuilder: { output: 1 },
+         BiplaneFactory: { output: 1 },
+      },
+      onUnlocked: (gs) => {
+         const candidates = rollGreatPeopleThisRun("ColdWarAge", gs.city, getGreatPeopleChoiceCount(gs));
+         if (candidates) {
+            gs.greatPeopleChoices.push(candidates);
+         }
+      },
+      additionalUpgrades: () => [t(L.CommunismLevel5DescHTML)],
    };
 }
 

@@ -317,11 +317,6 @@ fieldset .separator {
    align-items: center;
 }
 
-.column {
-   display: flex;
-   flex-direction: column;
-}
-
 .col {
    display: flex;
    flex-direction: column;
@@ -339,6 +334,7 @@ fieldset .separator {
    justify-content: flex-end;
 }
 
+.f1,
 .row .f1,
 .col .f1 {
    flex: 1;
@@ -367,6 +363,10 @@ fieldset .separator {
 
 .mt10 {
    margin-top: 10px;
+}
+
+.mt20 {
+   margin-top: 20px;
 }
 
 .mb10 {
@@ -576,6 +576,7 @@ ul.tree-view>li:first-child {
 
 button {
    min-width: unset;
+   display: block;
 }
 
 .production-warning {

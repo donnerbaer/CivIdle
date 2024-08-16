@@ -1,7 +1,7 @@
 import type { Building, IBuildingDefinition } from "../definitions/BuildingDefinitions";
 import type { Deposit, Resource } from "../definitions/ResourceDefinitions";
 import { Grid } from "../utilities/Grid";
-import { clamp, forEach, mapSafeAdd, safeAdd, tileToHash, type Tile } from "../utilities/Helper";
+import { clamp, forEach, mapSafeAdd, reduceOf, safeAdd, tileToHash, type Tile } from "../utilities/Helper";
 import type { PartialSet, PartialTabulate } from "../utilities/TypeDefinitions";
 import {
    IOCalculation,
@@ -11,10 +11,17 @@ import {
    totalMultiplierFor,
 } from "./BuildingLogic";
 import { Config } from "./Config";
+import { SCIENCE_VALUE } from "./Constants";
 import type { GameState } from "./GameState";
 import { TILE_SIZE } from "./GameStateLogic";
-import { NotProducingReason, Tick } from "./TickLogic";
-import type { IBuildingData, IMarketBuildingData, IResourceImportBuildingData, ITileData } from "./Tile";
+import { NotProducingReason, Tick, type MultiplierType, type MultiplierWithSource } from "./TickLogic";
+import type {
+   IBuildingData,
+   ICloneBuildingData,
+   IMarketBuildingData,
+   IResourceImportBuildingData,
+   ITileData,
+} from "./Tile";
 
 class IntraTickCache {
    revealedDeposits: PartialSet<Deposit> | undefined;
@@ -30,6 +37,8 @@ class IntraTickCache {
    >();
    storageFullBuildings: Tile[] | undefined;
    resourceIO: IResourceIO | undefined;
+   fuelByTarget: Map<Tile, number> = new Map();
+   globalMultipliers: Map<MultiplierType, MultiplierWithSource[]> = new Map();
 }
 
 export interface IResourceIO {
@@ -43,6 +52,10 @@ let _cache = new IntraTickCache();
 
 export function clearIntraTickCache(): void {
    _cache = new IntraTickCache();
+}
+
+export function getFuelByTarget(): Map<Tile, number> {
+   return _cache.fuelByTarget;
 }
 
 export function getBuildingIO(
@@ -86,21 +99,36 @@ export function getBuildingIO(
       }
       if ("resourceImports" in b && type === "input") {
          const totalCapacity = getResourceImportCapacity(b, totalMultiplierFor(xy, "output", 1, false, gs));
-         let used = 0;
-         forEach((b as IResourceImportBuildingData).resourceImports, (k, v) => {
-            if (Tick.current.totalValue > 0 && used + v.perCycle > totalCapacity) {
-               // Somehow a player manages to assign more capacity than allowed. We correct this case here.
-               // But we only want to correct this when Tick is fully initialized. Currently it's done by
-               // checking Tick.current.totalValue, but we should revisit this later
-               v.perCycle = clamp(totalCapacity - used, 0, v.perCycle);
-            } else {
-               used += v.perCycle;
-               result[k] = v.perCycle;
+         const rib = b as IResourceImportBuildingData;
+         const totalSetCapacity = reduceOf(rib.resourceImports, (prev, k, v) => prev + v.perCycle, 0);
+         const scaleFactor = clamp(totalSetCapacity > 0 ? totalCapacity / totalSetCapacity : 0, 0, 1);
+         forEach(rib.resourceImports, (k, v) => {
+            // This means the total capacity < total set capacity. It happens when the multiplier reduces.
+            // In this case, we scale down all values equally
+            if (v.perCycle > 0) {
+               result[k] = v.perCycle * scaleFactor;
             }
          });
+
          _cache.buildingIO.set(key, Object.freeze(result));
          // Resource imports is not affected by multipliers
          return result;
+      }
+      if ("inputResource" in b) {
+         const s = b as ICloneBuildingData;
+         if (type === "input") {
+            resources[s.inputResource] = 1;
+         }
+         if (type === "output") {
+            switch (b.type) {
+               case "CloneFactory":
+                  resources[s.inputResource] = 2;
+                  break;
+               case "CloneLab":
+                  resources.Science = ((Config.ResourcePrice[s.inputResource] ?? 0) * 2) / SCIENCE_VALUE;
+                  break;
+            }
+         }
       }
       // Apply multipliers
       forEach(resources, (k, v) => {
@@ -108,12 +136,15 @@ export function getBuildingIO(
          if (options & IOCalculation.Capacity) {
             value *= b.capacity;
          }
-         if (options & IOCalculation.Multiplier) {
-            // For market, we always apply production multiplier, regardless of type!
-            value *= totalMultiplierFor(xy, b.type === "Market" ? "output" : type, 1, false, gs);
-         } else if (options & IOCalculation.MultiplierStableOnly) {
-            // For market, we always apply production multiplier, regardless of type!
-            value *= totalMultiplierFor(xy, b.type === "Market" ? "output" : type, 1, true, gs);
+         if (options & IOCalculation.Multiplier || options & IOCalculation.MultiplierStableOnly) {
+            const stableOnly = !!(options & IOCalculation.MultiplierStableOnly);
+            if (b.type === "Market") {
+               value *= totalMultiplierFor(xy, "output", 1, stableOnly, gs);
+            } else if (type === "output" && (b.type === "CloneFactory" || b.type === "CloneLab")) {
+               value = value * 0.5 + value * 0.5 * totalMultiplierFor(xy, "output", 1, stableOnly, gs);
+            } else {
+               value *= totalMultiplierFor(xy, type, 1, stableOnly, gs);
+            }
          }
          safeAdd(result, k, value);
       });
@@ -163,14 +194,12 @@ export function getTransportStat(gs: GameState): ITransportStat {
    let totalFuel = 0;
    let totalTransports = 0;
    let stalled = 0;
-   gs.transportation.forEach((target) => {
-      target.forEach((t) => {
-         totalFuel += t.currentFuelAmount;
-         ++totalTransports;
-         if (!t.hasEnoughFuel) {
-            ++stalled;
-         }
-      });
+   gs.transportationV2.forEach((t) => {
+      totalFuel += t.fuelCurrentTick;
+      ++totalTransports;
+      if (!t.hasEnoughFuel) {
+         ++stalled;
+      }
    });
    const result: ITransportStat = { totalFuel, totalTransports, stalled };
    _cache.transportStat = result;
@@ -291,4 +320,17 @@ export function getGrid(gs: GameState): Grid {
       grid = new Grid(size, size, TILE_SIZE);
    }
    return grid;
+}
+
+export function getGlobalMultipliers(type: MultiplierType): MultiplierWithSource[] {
+   const cached = _cache.globalMultipliers.get(type);
+   if (cached) {
+      return cached;
+   }
+   const result: MultiplierWithSource[] = [];
+   Tick.current.globalMultipliers[type].forEach((m) => {
+      result.push({ source: m.source, [type]: m.value, unstable: m.unstable } as MultiplierWithSource);
+   });
+   _cache.globalMultipliers.set(type, result);
+   return result;
 }

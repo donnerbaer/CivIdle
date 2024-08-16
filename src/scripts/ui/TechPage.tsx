@@ -3,6 +3,7 @@ import { Config } from "../../../shared/logic/Config";
 import { notifyGameStateUpdate } from "../../../shared/logic/GameStateLogic";
 import { getGreatPeopleChoiceCount, rollGreatPeopleThisRun } from "../../../shared/logic/RebirthLogic";
 import {
+   checkItsukushimaShrine,
    getCurrentAge,
    getScienceAmount,
    getTechUnlockCost,
@@ -57,8 +58,18 @@ export function TechPage({ id }: { id: Tech }): React.ReactNode {
                   }
                }
             });
+            if (gs.unlockedUpgrades.Communism5) {
+               for (let i = 0; i < 2; i++) {
+                  const candidates = rollGreatPeopleThisRun(newAge, gs.city, getGreatPeopleChoiceCount(gs));
+                  if (candidates) {
+                     gs.greatPeopleChoices.push(candidates);
+                  }
+               }
+            }
             checkAgeAchievements(newAge);
          }
+
+         checkItsukushimaShrine(tech, gs);
       });
 
       if (gs.greatPeopleChoices.length > 0) {

@@ -12,6 +12,7 @@ import { EuphratesRiverBuildingBody } from "./EuphratesRiverBuildingBody";
 import { GrandBazaarBuildingBody } from "./GrandBazaarBuildingBody";
 import { HagiaSophiaBuildingBody } from "./HagiaSophiaBuildingBody";
 import { HeadquarterBuildingBody } from "./HeadquarterBuildingBody";
+import { IdeologyBuildingBody } from "./IdeologyBuildingBody";
 import { LoadingPage, LoadingPageStage } from "./LoadingPage";
 import { MarketBuildingBody } from "./MarketBuildingBody";
 import { MenuComponent } from "./MenuComponent";
@@ -24,6 +25,7 @@ import { TheMetBuildingBody } from "./TheMetBuildingBody";
 import { ToggleWonderBuildingBody } from "./ToggleableWonderBuildingBody";
 import { TraditionBuildingBody } from "./TraditionBuildingBody";
 import { UnitedNationsBuildingBody } from "./UnitedNationsBuildingBody";
+import { UpgradableWonderBuildingBody } from "./UpgradableWonderBuildingBody";
 import { WarehouseBuildingBody } from "./WarehouseBuildingBody";
 
 const BuildingBodyOverride: Partial<Record<Building, FunctionComponent<IBuildingComponentProps>>> = {
@@ -45,9 +47,17 @@ const BuildingBodyOverride: Partial<Record<Building, FunctionComponent<IBuilding
    Broadway: BroadwayBuildingBody,
    TheMet: TheMetBuildingBody,
    LuxorTemple: ReligionBuildingBody,
+   BigBen: IdeologyBuildingBody,
    EuphratesRiver: EuphratesRiverBuildingBody,
    ZigguratOfUr: ToggleWonderBuildingBody,
    HagiaSophia: HagiaSophiaBuildingBody,
+   InternationalSpaceStation: UpgradableWonderBuildingBody,
+   MarinaBaySands: UpgradableWonderBuildingBody,
+   PalmJumeirah: UpgradableWonderBuildingBody,
+   AldersonDisk: UpgradableWonderBuildingBody,
+   DysonSphere: UpgradableWonderBuildingBody,
+   MatrioshkaBrain: UpgradableWonderBuildingBody,
+   LargeHadronCollider: UpgradableWonderBuildingBody,
 };
 
 export function BuildingPage(props: { tile: ITileData }): React.ReactNode {

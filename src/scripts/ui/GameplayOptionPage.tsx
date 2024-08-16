@@ -14,6 +14,7 @@ import {
    STOCKPILE_MAX_MAX,
    STOCKPILE_MAX_MIN,
 } from "../../../shared/logic/Tile";
+import { clearTransportSourceCache } from "../../../shared/logic/Update";
 import { clamp, formatPercent, keysOf, safeParseInt, sizeOf } from "../../../shared/utilities/Helper";
 import { L, t } from "../../../shared/utilities/i18n";
 import { useGameOptions, useGameState } from "../Global";
@@ -220,49 +221,6 @@ export function GameplayOptionPage(): React.ReactNode {
                   })}
                </select>
             </fieldset>
-            {sizeOf(options.buildingDefaults) > 0 ? (
-               <fieldset>
-                  <legend>{t(L.BuildingDefaults)}</legend>
-                  <div className="table-view">
-                     <table>
-                        <tbody>
-                           {keysOf(options.buildingDefaults)
-                              .sort((a, b) =>
-                                 Config.Building[a].name().localeCompare(Config.Building[b].name()),
-                              )
-                              .map((building) => {
-                                 const value = options.buildingDefaults[building];
-                                 return (
-                                    <tr key={building}>
-                                       <td>{Config.Building[building].name()}</td>
-                                       <td>
-                                          <TextWithHelp
-                                             content={t(L.BuildingDefaultsCount, { count: sizeOf(value) })}
-                                          >
-                                             {sizeOf(value)}
-                                          </TextWithHelp>
-                                       </td>
-                                       <td style={{ width: 0 }}>
-                                          <Tippy content={t(L.BuildingDefaultsRemove)}>
-                                             <div
-                                                className="text-red m-icon small"
-                                                onClick={() => {
-                                                   delete options.buildingDefaults[building];
-                                                   notifyGameOptionsUpdate();
-                                                }}
-                                             >
-                                                delete
-                                             </div>
-                                          </Tippy>
-                                       </td>
-                                    </tr>
-                                 );
-                              })}
-                        </tbody>
-                     </table>
-                  </div>
-               </fieldset>
-            ) : null}
             <fieldset>
                <legend>{t(L.Sound)}</legend>
                <ChangeSoundComponent />
@@ -310,6 +268,81 @@ export function GameplayOptionPage(): React.ReactNode {
                   </div>
                </div>
             </fieldset>
+            <fieldset>
+               <legend>{t(L.Performance)}</legend>
+               <div className="row">
+                  <div className="f1">
+                     <div>{t(L.TransportPlanCache)}</div>
+                     <RenderHTML className="text-desc text-small" html={t(L.TransportPlanCacheDescHTML)} />
+                  </div>
+                  <div
+                     onClick={() => {
+                        playClick();
+                        options.enableTransportSourceCache = !options.enableTransportSourceCache;
+                        notifyGameOptionsUpdate(options);
+                     }}
+                     className="ml10 pointer"
+                  >
+                     {options.enableTransportSourceCache ? (
+                        <div className="m-icon text-green">toggle_on</div>
+                     ) : (
+                        <div className="m-icon text-grey">toggle_off</div>
+                     )}
+                  </div>
+               </div>
+               <button
+                  className="jcc w100 mt10"
+                  onClick={() => {
+                     playClick();
+                     clearTransportSourceCache();
+                  }}
+               >
+                  {t(L.ClearTransportPlanCache)}
+               </button>
+            </fieldset>
+            {sizeOf(options.buildingDefaults) > 0 ? (
+               <fieldset>
+                  <legend>{t(L.BuildingDefaults)}</legend>
+                  <div className="table-view">
+                     <table>
+                        <tbody>
+                           {keysOf(options.buildingDefaults)
+                              .sort((a, b) =>
+                                 Config.Building[a].name().localeCompare(Config.Building[b].name()),
+                              )
+                              .map((building) => {
+                                 const value = options.buildingDefaults[building];
+                                 return (
+                                    <tr key={building}>
+                                       <td>{Config.Building[building].name()}</td>
+                                       <td>
+                                          <TextWithHelp
+                                             content={t(L.BuildingDefaultsCount, { count: sizeOf(value) })}
+                                          >
+                                             {sizeOf(value)}
+                                          </TextWithHelp>
+                                       </td>
+                                       <td style={{ width: 0 }}>
+                                          <Tippy content={t(L.BuildingDefaultsRemove)}>
+                                             <div
+                                                className="text-red m-icon small"
+                                                onClick={() => {
+                                                   delete options.buildingDefaults[building];
+                                                   notifyGameOptionsUpdate();
+                                                }}
+                                             >
+                                                delete
+                                             </div>
+                                          </Tippy>
+                                       </td>
+                                    </tr>
+                                 );
+                              })}
+                        </tbody>
+                     </table>
+                  </div>
+               </fieldset>
+            ) : null}
          </div>
       </div>
    );
